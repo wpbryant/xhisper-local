@@ -1,0 +1,10 @@
+# xhisper configuration
+# Copy to ~/.xhisperrc and customize
+
+# Transcription Settings:
+long-recording-threshold : 1000
+transcription-prompt : ""
+
+# Paste Timing (seconds):
+non-ascii-initial-delay : 0.1
+non-ascii-default-delay : 0.025
