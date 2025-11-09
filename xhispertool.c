@@ -24,6 +24,19 @@
 #define KEY_V 47
 #define FLAG_UPPERCASE 0x80000000
 
+// Function prototypes
+void cleanup(void);
+void emit(int type, int code, int val);
+void do_paste(void);
+void type_char(unsigned char c);
+void do_backspace(void);
+void do_key(int keycode);
+int setup_uinput(void);
+int setup_socket(void);
+int run_daemon(void);
+void show_usage(void);
+int run_client(int argc, char *argv[]);
+
 // ASCII to Linux keycode mapping for US QWERTY layout
 // Independently derived from:
 // - ASCII character set specification (characters 0-127)
@@ -318,22 +331,24 @@ int run_daemon() {
 
 // Client mode
 void show_usage() {
-    fprintf(stderr, "Usage:\n");
-    fprintf(stderr, "  xhispertool paste            - Paste from clipboard (Ctrl+V)\n");
-    fprintf(stderr, "  xhispertool type <char>      - Type a single ASCII character\n");
-    fprintf(stderr, "  xhispertool backspace        - Press backspace\n");
-    fprintf(stderr, "\n");
-    fprintf(stderr, "Input switching keys:\n");
-    fprintf(stderr, "  xhispertool leftalt          - Press left alt\n");
-    fprintf(stderr, "  xhispertool rightalt         - Press right alt\n");
-    fprintf(stderr, "  xhispertool leftctrl         - Press left ctrl\n");
-    fprintf(stderr, "  xhispertool rightctrl        - Press right ctrl\n");
-    fprintf(stderr, "  xhispertool leftshift        - Press left shift\n");
-    fprintf(stderr, "  xhispertool rightshift       - Press right shift\n");
-    fprintf(stderr, "  xhispertool super            - Press super (Windows key)\n");
-    fprintf(stderr, "\n");
-    fprintf(stderr, "Daemon:\n");
-    fprintf(stderr, "  xhispertoold                 - Run daemon (or xhispertool --daemon)\n");
+    fprintf(stderr,
+        "Usage:\n"
+        "  xhispertool paste            - Paste from clipboard (Ctrl+V)\n"
+        "  xhispertool type <char>      - Type a single ASCII character\n"
+        "  xhispertool backspace        - Press backspace\n"
+        "\n"
+        "Input switching keys:\n"
+        "  xhispertool leftalt          - Press left alt\n"
+        "  xhispertool rightalt         - Press right alt\n"
+        "  xhispertool leftctrl         - Press left ctrl\n"
+        "  xhispertool rightctrl        - Press right ctrl\n"
+        "  xhispertool leftshift        - Press left shift\n"
+        "  xhispertool rightshift       - Press right shift\n"
+        "  xhispertool super            - Press super (Windows key)\n"
+        "\n"
+        "Daemon:\n"
+        "  xhispertoold                 - Run daemon (or xhispertool --daemon)\n"
+    );
 }
 
 int run_client(int argc, char *argv[]) {

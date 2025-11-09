@@ -7,6 +7,8 @@
 # Configuration (see default_xhisperrc or ~/.xhisperrc):
 # - long-recording-threshold : threshold for using large vs turbo model (seconds)
 # - transcription-prompt : context words for better Whisper accuracy
+# - silence-threshold : max volume in dB to consider silent (e.g., -50)
+# - silence-percentage : percentage of recording that must be silent (e.g., 95)
 # - non-ascii-initial-delay : sleep after first non-ASCII paste (seconds)
 # - non-ascii-default-delay : sleep after subsequent non-ASCII pastes (seconds)
 
@@ -66,6 +68,8 @@ PROCESS_PATTERN="pw-record.*$RECORDING"
 # Default configuration
 long_recording_threshold=1000
 transcription_prompt=""
+silence_threshold=-50
+silence_percentage=95
 non_ascii_initial_delay=0.1
 non_ascii_default_delay=0.025
 
@@ -83,6 +87,8 @@ if [ -f "$HOME/.xhisperrc" ]; then
     case "$key" in
       long-recording-threshold) long_recording_threshold="$value" ;;
       transcription-prompt) transcription_prompt="$value" ;;
+      silence-threshold) silence_threshold="$value" ;;
+      silence-percentage) silence_percentage="$value" ;;
       non-ascii-initial-delay) non_ascii_initial_delay="$value" ;;
       non-ascii-default-delay) non_ascii_default_delay="$value" ;;
     esac
@@ -164,6 +170,23 @@ get_duration() {
   ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$recording" 2>/dev/null || echo "0"
 }
 
+is_silent() {
+  local recording="$1"
+
+  # Use ffmpeg volumedetect to get mean and max volume
+  local vol_stats=$(ffmpeg -i "$recording" -af "volumedetect" -f null /dev/null 2>&1 | grep -E "mean_volume|max_volume")
+  local max_vol=$(echo "$vol_stats" | grep "max_volume" | awk '{print $5}')
+
+  # If max volume is below threshold, consider it silent
+  # Note: ffmpeg reports in dB, negative values (e.g., -50 dB is quiet)
+  if [ -n "$max_vol" ]; then
+    local is_quiet=$(echo "$max_vol < $silence_threshold" | bc -l)
+    [ "$is_quiet" -eq 1 ] && return 0
+  fi
+
+  return 1
+}
+
 logging_end_and_write_to_logfile() {
   local title="$1"
   local result="$2"
@@ -204,6 +227,15 @@ transcribe() {
 if pgrep -f "$PROCESS_PATTERN" > /dev/null; then
   pkill -f "$PROCESS_PATTERN"; sleep 0.2 # Buffer for flush
   delete_n_chars 14 # "(recording...)"
+
+  # Check if recording is silent
+  if is_silent "$RECORDING"; then
+    paste "(no sound detected)"
+    sleep 0.6
+    delete_n_chars 19 # "(no sound detected)"
+    rm -f "$RECORDING"
+    exit 0
+  fi
 
   paste "(transcribing...)"
   TRANSCRIPTION=$(transcribe "$RECORDING")

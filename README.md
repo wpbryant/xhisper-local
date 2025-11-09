@@ -1,21 +1,14 @@
 <div align="center">
   <h1>xhisper <i>/ˈzɪspər/</i></h1>
-  <b>dictate anywhere in Linux; transcribe at your cursor</b>
+  <img src="demo.gif" alt="xhisper demo" width="300">
   <br><br>
 </div>
 
-## One-liner
-
-Dead simple anywhere-dictation (like [WisprFlow](https://wisprflow.ai/)) for Linux.
+Dictation at cursor for Linux.
 
 ## Installation
 
 ### Dependencies
-
-<details>
-<summary>Fedora / RHEL / AlmaLinux / Rocky</summary>
-<pre><code>sudo dnf install -y pipewire pipewire-utils jq curl ffmpeg gcc</code></pre>
-</details>
 
 <details>
 <summary>Arch Linux / Manjaro</summary>
@@ -29,9 +22,8 @@ sudo apt install pipewire jq curl ffmpeg gcc</code></pre>
 </details>
 
 <details>
-<summary>Void Linux</summary>
-<pre><code>sudo xbps-install -S
-sudo xbps-install pipewire jq curl ffmpeg gcc</code></pre>
+<summary>Fedora / RHEL / AlmaLinux / Rocky</summary>
+<pre><code>sudo dnf install -y pipewire pipewire-utils jq curl ffmpeg gcc</code></pre>
 </details>
 
 <details>
@@ -40,7 +32,13 @@ sudo xbps-install pipewire jq curl ffmpeg gcc</code></pre>
 sudo zypper install pipewire jq curl ffmpeg gcc</code></pre>
 </details>
 
-**Note:** `wl-clipboard` (Wayland) or `xclip` (X11) required but usually pre-installed.
+<details>
+<summary>Void Linux</summary>
+<pre><code>sudo xbps-install -S
+sudo xbps-install pipewire jq curl ffmpeg gcc</code></pre>
+</details>
+
+**Note:** `wl-clipboard` (Wayland) or `xclip` (X11) required for non-ASCII but usually pre-installed.
 
 ### Setup
 
@@ -113,37 +111,43 @@ bind = $mainMod, D, exec, xhisper
 
 ## Usage
 
-Simply run `xhisper` twice:
+Simply run `xhisper` twice (via your favorite keybinding):
 - **First run**: Starts recording
 - **Second run**: Stops and transcribes
 
 The transcription will be typed at your cursor position.
 
-For non-QWERTY layouts, set up an input switch key to QWERTY (e.g. rightalt). Then instead of `xhisper`, bind your favorite key to:
+**View logs:**
 ```sh
-xhisper --rightalt
+xhisper --log
 ```
 
-**Available wrap keys:** `--leftalt`, `--rightalt`, `--leftctrl`, `--rightctrl`, `--leftshift`, `--rightshift`, `--super`
+**Non-QWERTY layouts:**
+
+For non-QWERTY layouts (e.g. Dvorak, International), set up an input switch key to QWERTY (e.g. rightalt). Then instead of binding to `xhisper`, bind to:
+```sh
+xhisper --<your-input-switch-key>
+```
+
+**Available input switch keys:** `--leftalt`, `--rightalt`, `--leftctrl`, `--rightctrl`, `--leftshift`, `--rightshift`, `--super`
 
 Key chords (like ctrl-space) not available yet.
-
-The daemon (`xhispertoold`) auto-starts when needed.
 
 ---
 
 ## Configuration
 
-Edit variables at the top of `xhisper`:
+Configuration is read from `~/.xhisperrc`:
 
-| Variable                     | Default | Description                                      |
-|------------------------------|---------|--------------------------------------------------|
-| `LONG_RECORDING_THRESHOLD`   | `1000`  | Seconds threshold for large model (in seconds)   |
-| `TRANSCRIPTION_PROMPT`       | Custom  | Context words for better Whisper accuracy        |
+```sh
+cp default_xhisperrc ~/.xhisperrc
+```
 
 ## Troubleshooting
 
-**Terminal Applications**: The clipboard paste functionality uses Ctrl+V, which doesn't work in terminal emulators (they require Ctrl+Shift+V). Temporary workaround is to remap Ctrl+V to paste in your terminal emulator's settings. Note that *this limitation only affects international/Unicode characters*. ASCII characters (a-z, A-Z, 0-9, punctuation) are typed directly and work in all applications including terminals.
+**Terminal Applications**: Clipboard paste uses Ctrl+V, which doesn't work in terminal emulators (they require Ctrl+Shift+V). Temporary workaround is to remap Ctrl+V to paste in your terminal emulator's settings. Note that *this limitation only affects international/Unicode characters*. ASCII characters (a-z, A-Z, 0-9, punctuation) are typed directly and doesn't care whether terminal or not.
+
+**Non-ASCII Transcription**: Increase non-ascii-*-delay to give the transcription longer timing buffer.
 
 ---
 
