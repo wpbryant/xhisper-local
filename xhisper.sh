@@ -1,11 +1,13 @@
 #!/bin/bash
 
-# xhisper v1.0
+# xhisper v2.0
 # Dictate anywhere in Linux. Transcription at your cursor.
-# - Transcription via Groq Whisper
+# - Transcription via local Whisper models (faster-whisper)
 
 # Configuration (see default_xhisperrc or ~/.config/xhisper/xhisperrc):
-# - long-recording-threshold : threshold for using large vs turbo model (seconds)
+# - model-name : Whisper model size (tiny, base, small, medium, large-v3)
+# - model-device : Device to use (auto, cpu, cuda)
+# - model-language : Language code for faster/more accurate transcription (e.g., en)
 # - transcription-prompt : context words for better Whisper accuracy
 # - silence-threshold : max volume in dB to consider silent (e.g., -50)
 # - silence-percentage : percentage of recording that must be silent (e.g., 95)
@@ -15,10 +17,9 @@
 # Requirements:
 # - pipewire, pipewire-utils (audio)
 # - wl-clipboard (Wayland) or xclip (X11) for clipboard
-# - jq, curl, ffmpeg (processing)
+# - ffmpeg (processing)
+# - Python 3 with faster-whisper
 # - make to build, sudo make install to install
-
-[ -f "$HOME/.env" ] && source "$HOME/.env"
 
 # Parse command-line arguments
 LOCAL_MODE=0
@@ -66,7 +67,9 @@ LOGFILE="/tmp/xhisper.log"
 PROCESS_PATTERN="pw-record.*$RECORDING"
 
 # Default configuration
-long_recording_threshold=1000
+model_name="base"
+model_device="auto"
+model_language=""
 transcription_prompt=""
 silence_threshold=-50
 silence_percentage=95
@@ -86,7 +89,9 @@ if [ -f "$CONFIG_FILE" ]; then
     value=$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^"//;s/"$//')
 
     case "$key" in
-      long-recording-threshold) long_recording_threshold="$value" ;;
+      model-name) model_name="$value" ;;
+      model-device) model_device="$value" ;;
+      model-language) model_language="$value" ;;
       transcription-prompt) transcription_prompt="$value" ;;
       silence-threshold) silence_threshold="$value" ;;
       silence-percentage) silence_percentage="$value" ;;
@@ -205,17 +210,26 @@ transcribe() {
   local recording="$1"
   local logging_start=$(date +%s%N)
 
-  # Use large model for longer recordings, turbo for short ones
-  local is_long_recording=$(echo "$(get_duration "$recording") > $long_recording_threshold" | bc -l)
-  local model=$([[ $is_long_recording -eq 1 ]] && echo "whisper-large-v3" || echo "whisper-large-v3-turbo")
+  # Set up transcription script path
+  if [ "$LOCAL_MODE" -eq 1 ]; then
+    TRANSCRIPT_SCRIPT="$SCRIPT_DIR/xhisper_transcribe.py"
+  else
+    TRANSCRIPT_SCRIPT="xhisper_transcribe"
+  fi
 
-  local transcription=$(curl -s -X POST "https://api.groq.com/openai/v1/audio/transcriptions" \
-    -H "Authorization: Bearer $GROQ_API_KEY" \
-    -H "Content-Type: multipart/form-data" \
-    -F "file=@$recording" \
-    -F "model=$model" \
-    -F "prompt=$transcription_prompt" \
-    | jq -r '.text' | sed 's/^ //') # Transcription always returns a leading space, so remove it via sed
+  # Build command arguments
+  local cmd_args="--model $model_name --device $model_device"
+
+  if [ -n "$model_language" ]; then
+    cmd_args="$cmd_args --language $model_language"
+  fi
+
+  if [ -n "$transcription_prompt" ]; then
+    cmd_args="$cmd_args --prompt \"$transcription_prompt\""
+  fi
+
+  # Run transcription
+  local transcription=$(python3 "$TRANSCRIPT_SCRIPT" "$recording" $cmd_args 2>/dev/null)
 
   logging_end_and_write_to_logfile "Transcription" "$transcription" "$logging_start"
 

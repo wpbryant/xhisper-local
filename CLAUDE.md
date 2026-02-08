@@ -1,12 +1,19 @@
-# xhisper - Linux Dictation Tool
+# xhisper-local - Linux Dictation Tool with Local Whisper
 
 ## Project Overview
 
-xhisper is a lightweight Linux dictation tool that transcribes speech to text directly at the cursor position. It uses a keyboard-driven workflow and integrates seamlessly with any Linux application.
+xhisper-local is a fork of xhisper that uses **local Whisper models** instead of cloud APIs. It transcribes speech to text directly at the cursor position on Linux, working completely offline.
 
-**Current Version:** 1.0
-**Language:** C (daemon/tool), Bash (main script)
-**License:** See LICENSE file
+**Version:** 2.0 (local Whisper fork)
+**Language:** C (daemon/tool), Bash (main script), Python (transcription)
+**Upstream:** https://github.com/imaginalnika/xhisper
+
+## Key Changes from Upstream
+
+- **No API key required** - uses local Whisper models via faster-whisper
+- **Works offline** - after initial model download
+- **GPU acceleration** - supports CUDA for NVIDIA GPUs
+- **Configurable models** - choose speed/accuracy tradeoff
 
 ## Architecture
 
@@ -23,10 +30,16 @@ xhisper is a lightweight Linux dictation tool that transcribes speech to text di
    - Commands: `paste`, `type <char>`, `backspace`, modifier keys
    - Symlinked as `xhispertoold` for daemon mode
 
-3. **xhisper.sh** (main entry point)
+3. **xhisper_transcribe.py** (Python transcription module)
+   - Uses faster-whisper (CTranslate2) for local transcription
+   - Downloads and caches models from Hugging Face
+   - Supports GPU acceleration via CUDA
+   - Voice activity detection (VAD) to remove silence
+
+4. **xhisper.sh** (main entry point)
    - Orchestrates recording/transcription workflow
    - Records audio via PipeWire (`pw-record`)
-   - Calls transcription API
+   - Calls Python transcription script
    - Manages text input via daemon
    - Toggle behavior: first run starts recording, second run stops and transcribes
 
@@ -47,42 +60,41 @@ Check for silence (ffmpeg volumedetect)
     ↓ (not silent)
 Type "(transcribing...)", call transcribe()
     ↓
+xhisper_transcribe.py runs faster-whisper
+    ↓
 Delete "(transcribing...)", type transcription result
 ```
-
-## Current API Integration
-
-**Groq Whisper API** (cloud-based, requires API key)
-
-- Endpoint: `https://api.groq.com/openai/v1/audio/transcriptions`
-- Models:
-  - `whisper-large-v3-turbo` for short recordings (< 1000s)
-  - `whisper-large-v3` for longer recordings
-- API Key: stored in `~/.env` as `GROQ_API_KEY`
-- Headers: `Authorization: Bearer $GROQ_API_KEY`
-- Form fields: `file`, `model`, `prompt`
 
 ## Dependencies
 
 ### System packages
 - **pipewire** - Audio recording (`pw-record`)
-- **jq** - JSON parsing
-- **curl** - HTTP requests
 - **ffmpeg** - Audio processing, silence detection
 - **gcc** - C compiler
+- **python3** - Python 3.10+
 - **wl-clipboard** (Wayland) or **xclip** (X11) - Clipboard operations
+
+### Python packages
+- **faster-whisper** - Local Whisper transcription with CTranslate2
 
 ### System requirements
 - User must be in `input` group for `/dev/uinput` access
 - Linux with uinput support
+- For GPU: CUDA toolkit (optional, CPU fallback available)
 
 ## Configuration
 
 Location: `~/.config/xhisper/xhisperrc` (or `$XDG_CONFIG_HOME/xhisper/xhisperrc`)
 
 ```ini
-# Model selection threshold (seconds)
-long-recording-threshold : 1000
+# Whisper model size: tiny, base, small, medium, large-v3
+model-name : base
+
+# Device: auto, cpu, or cuda
+model-device : auto
+
+# Language code (e.g., en, es, fr) or empty for auto-detect
+model-language : ""
 
 # Context words for better accuracy
 transcription-prompt     : ""
@@ -96,12 +108,23 @@ silence-threshold  : -50
 silence-percentage : 95
 ```
 
+### Model Sizes
+
+| Model | Size | RAM | Speed | Accuracy |
+|-------|------|-----|-------|----------|
+| tiny | 39M | ~1GB | Very fast | Lowest |
+| base | 74M | ~1GB | Fast | Good (recommended) |
+| small | 244M | ~2GB | Medium | Better |
+| medium | 769M | ~5GB | Slow | Very good |
+| large-v3 | 1550M | ~10GB | Slowest | Best |
+
 ## Key Files
 
 | File | Purpose |
 |------|---------|
 | `xhisper.sh` | Main script - recording, transcription, typing |
 | `xhispertool.c` | C daemon + client for uinput keyboard |
+| `xhisper_transcribe.py` | Python transcription using faster-whisper |
 | `test.c` | Test program for uinput verification |
 | `Makefile` | Build and install targets |
 | `default_xhisperrc` | Default configuration template |
@@ -116,10 +139,18 @@ The daemon's `ascii2keycode_map` in xhispertool.c maps ASCII to Linux keycodes f
 ## Build & Install
 
 ```bash
-make                  # Build xhispertool and test
-sudo make install     # Install to /usr/local/bin/
-sudo make uninstall   # Remove installed binaries
-make clean           # Remove built files
+# Install Python dependencies
+pip install --break-system-packages faster-whisper
+
+# Build and install
+make
+sudo make install
+
+# Uninstall
+sudo make uninstall
+
+# Clean build artifacts
+make clean
 ```
 
 ## Command Line Options
@@ -131,62 +162,26 @@ xhisper --log        # Show transcription log
 xhisper --rightalt   # Use right alt as input switch key (for non-QWERTY layouts)
 ```
 
-## Local Whisper Migration Plan
-
-To replace Groq API with local whisper models:
-
-### Option 1: whisper.cpp (Recommended)
-- C++ library, lightweight
-- Python bindings available
-- Models: tiny, base, small, medium, large-v1, large-v2, large-v3
-- Supports quantization for smaller models
-
-### Option 2: OpenAI Whisper (Python)
-- Original implementation
-- Requires PyTorch
-- Heavier resource usage
-
-### Implementation Changes Needed
-
-1. **Remove API dependency:**
-   - Remove `GROQ_API_KEY` from `~/.env` requirement
-   - Remove curl/jq from transcribe() function
-   - Remove model selection based on duration
-
-2. **Add local transcription:**
-   - Install whisper library (whisper-cpp or openai-whisper)
-   - Replace `transcribe()` function with local model call
-   - Download model to `~/.local/share/xhisper/models/`
-
-3. **New config options:**
-   - `model-path` or `model-name` (e.g., "base", "small", "large-v3")
-   - `model-language` (optional, for faster/more accurate transcription)
-   - `device` (cpu/cuda)
-
-4. **Dependencies:**
-   - Python: `pip install openai-whisper`
-   - Or C++: whisper.cpp with bindings
-
-### Example transcribe() replacement (Python/whisper):
-
-```python
-import whisper
-
-model = whisper.load_model("base")
-result = model.transcribe("audio.wav", fp16=False)
-print(result["text"])
-```
-
-### Example transcribe() replacement (whisper.cpp):
-
-```bash
-./main -m models/ggml-base.bin -f audio.wav --no-colors
-```
-
 ## Development Notes
 
 - Daemon runs with `atexit(cleanup)` for proper uinput device destruction
 - Socket uses abstract namespace (no filesystem socket file)
 - Unicode paste timing configurable for different clipboard managers
+- Models cached in `~/.cache/huggingface/hub/`
 - Log file: `/tmp/xhisper.log`
 - Daemon log: `/tmp/xhispertoold.log`
+
+## Testing Transcription Standalone
+
+You can test the transcription module directly:
+
+```bash
+python3 xhisper_transcribe.py recording.wav --model base --device auto
+```
+
+Options:
+- `--model`: tiny, base, small, medium, large-v3
+- `--device`: auto, cpu, cuda
+- `--language`: Language code
+- `--prompt`: Context for better accuracy
+- `--debug`: Enable verbose output
