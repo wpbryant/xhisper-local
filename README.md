@@ -6,6 +6,8 @@
 
 Dictation at cursor for Linux. Now with **local Whisper** + **AI formatting** support - no API keys required!
 
+**Original project by [imaginalnika](https://github.com/imaginalnika/xhisper)** - This fork adds local Whisper transcription and AI formatting.
+
 ## Features
 
 - 🎤 **Local transcription** using Whisper models (no cloud API)
@@ -183,7 +185,7 @@ This setup achieves ~1 second transcription + ~1 second formatting for short rec
 
 ## Changes from upstream
 
-This fork adds significant enhancements to the original xhisper:
+This is a fork of [xhisper](https://github.com/imaginalnika/xhisper) by [imaginalnika](https://github.com/imaginalnika). The original project used the Groq API for transcription. This fork adds:
 
 - **Local Whisper transcription** via `faster-whisper` (no Groq API)
 - **AI formatting** with local LLM support via Ollama
@@ -196,4 +198,6 @@ This fork adds significant enhancements to the original xhisper:
 
 <p align="center">
   <em>Low complexity dictation for Linux with AI-powered formatting</em>
+  <br><br>
+  Forked from <a href="https://github.com/imaginalnika/xhisper">xhisper</a> by <a href="https://github.com/imaginalnika">imaginalnika</a>
 </p>
