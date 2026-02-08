@@ -31,3 +31,17 @@ non-ascii-default-delay : 0.025
 # Silence Detection:
 silence-threshold  : -50
 silence-percentage : 95
+
+# AI Post-Processing (optional):
+# Improve grammar, punctuation, and capitalization using local LLM via Ollama
+# - post-process-model : Ollama model name (e.g., gemma3:4b, phi3, llama3.2:3b)
+#   Leave empty to disable post-processing
+# - post-process-timeout : Maximum seconds to wait for LLM response
+# - post-process-mode : auto, standard, command, email
+#   auto: detects context based on content (default)
+#   standard: normal grammar/punctuation fixes
+#   command: preserves command syntax, fixes command names
+#   email: formats as email with salutations and sign-offs
+post-process-model     : ""
+post-process-timeout   : 10
+post-process-mode      : auto

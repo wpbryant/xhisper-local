@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Add CUDA library path for faster-whisper
+export LD_LIBRARY_PATH=/usr/local/lib/ollama/cuda_v12/lib:$LD_LIBRARY_PATH
+
 # xhisper v2.0
 # Dictate anywhere in Linux. Transcription at your cursor.
 # - Transcription via local Whisper models (faster-whisper)
@@ -24,6 +27,7 @@
 # Parse command-line arguments
 LOCAL_MODE=0
 WRAP_KEY=""
+POST_PROCESS_MODE=""  # Empty = use config/default
 for arg in "$@"; do
   case "$arg" in
     --local)
@@ -37,6 +41,9 @@ for arg in "$@"; do
       fi
       exit 0
       ;;
+    --mode=*)
+      POST_PROCESS_MODE="${arg#--mode=}"
+      ;;
     --leftalt|--rightalt|--leftctrl|--rightctrl|--leftshift|--rightshift|--super)
       if [ -n "$WRAP_KEY" ]; then
         echo "Error: Multiple wrap keys not yet supported" >&2
@@ -46,7 +53,7 @@ for arg in "$@"; do
       ;;
     *)
       echo "Error: Unknown option '$arg'" >&2
-      echo "Usage: xhisper [--local] [--log] [--leftalt|--rightalt|--leftctrl|--rightctrl|--leftshift|--rightshift|--super]" >&2
+      echo "Usage: xhisper [--local] [--log] [--mode=auto|standard|command|email] [--leftalt|--rightalt|--leftctrl|--rightctrl|--leftshift|--rightshift|--super]" >&2
       exit 1
       ;;
   esac
@@ -75,6 +82,9 @@ silence_threshold=-50
 silence_percentage=95
 non_ascii_initial_delay=0.1
 non_ascii_default_delay=0.025
+post_process_model=""
+post_process_timeout=10
+post_process_mode="auto"
 
 CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/xhisper/xhisperrc"
 
@@ -97,9 +107,15 @@ if [ -f "$CONFIG_FILE" ]; then
       silence-percentage) silence_percentage="$value" ;;
       non-ascii-initial-delay) non_ascii_initial_delay="$value" ;;
       non-ascii-default-delay) non_ascii_default_delay="$value" ;;
+      post-process-model) post_process_model="$value" ;;
+      post-process-timeout) post_process_timeout="$value" ;;
+      post-process-mode) post_process_mode="$value" ;;
     esac
   done < "$CONFIG_FILE"
 fi
+
+# Command-line mode overrides config
+[ -n "$POST_PROCESS_MODE" ] && post_process_mode="$POST_PROCESS_MODE"
 
 # Auto-start daemon if not running
 if ! pgrep -x xhispertoold > /dev/null; then
@@ -206,6 +222,61 @@ logging_end_and_write_to_logfile() {
   echo "Time: ${time}s" >> "$LOGFILE"
 }
 
+post_process() {
+  local text="$1"
+  local mode="${2:-$post_process_mode}"
+  local logging_start=$(date +%s%N)
+
+  # Skip if empty or no model configured
+  [ -z "$text" ] && echo "$text" && return
+  [ -z "$post_process_model" ] && echo "$text" && return
+
+  # Check if ollama is available
+  if ! command -v ollama &> /dev/null; then
+    echo "Error: ollama not found. Install ollama or disable post-processing." >&2
+    echo "$text"
+    return
+  fi
+
+  local prompt
+
+  # Auto-detect mode
+  if [ "$mode" = "auto" ]; then
+    # Check for command indicators
+    if echo "$text" | grep -qE "^(sudo |apt |git |npm |pip |systemctl |docker |cd |ls |mkdir |rm |cp |mv |grep |find |cat |tail |head |ssh |curl |wget |make |cargo |python |node |code |vim |nano |man |chmod |chown |ln |tar |zip |unzip |mount |umount |ps |kill |top |htop |df |du |free |uname |export |alias |source |exit |pseudo )|^(apt|git|npm|pip|sudo|systemctl|docker|cargo) " || \
+       echo "$text" | grep -qE " (install|update|upgrade|remove|purge|status|start|stop|restart|enable|disable|clone|pull|push|commit|add|log|diff|checkout|branch|merge|rebase|init)( |$)"; then
+      mode="command"
+    else
+      mode="standard"
+    fi
+  fi
+
+  # Build prompt based on mode
+  case "$mode" in
+    command)
+      prompt="You are a Linux command expert. Fix this command transcription. Rules: 1) Correct command names (sudo, apt, git, npm, systemctl, docker, etc.) 2) Keep flags exactly as spoken 3) Keep file paths as spoken 4) Fix pipe syntax 5) Output ONLY the corrected command, no explanations. Input: $text"
+      ;;
+    email)
+      prompt="Fix the grammar, punctuation, and capitalization of this email body text. Rules: 1) Use proper paragraph breaks (double line breaks between paragraphs) 2) Keep the tone natural and conversational 3) Do NOT add subject, salutation, or sign-off - user is typing in the body field 4) Output ONLY the formatted body text. Input: $text"
+      ;;
+    standard|*)
+      prompt="Fix the grammar, punctuation, and capitalization of this text. Important: use apostrophes for contractions like don't, can't, I'm, you're, it's, etc. Keep text natural and conversational. Output ONLY the corrected text. Text: $text"
+      ;;
+  esac
+
+  # Run ollama with timeout
+  local result=$(echo "$prompt" | timeout "$post_process_timeout" ollama run "$post_process_model" 2>/dev/null | tr -d '\n\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+  logging_end_and_write_to_logfile "Post-Process [$mode]" "$result" "$logging_start"
+
+  # If ollama failed or timed out, return original text
+  if [ -z "$result" ]; then
+    echo "$text"
+  else
+    echo "$result"
+  fi
+}
+
 transcribe() {
   local recording="$1"
   local logging_start=$(date +%s%N)
@@ -256,7 +327,20 @@ if pgrep -f "$PROCESS_PATTERN" > /dev/null; then
   TRANSCRIPTION=$(transcribe "$RECORDING")
   delete_n_chars 17 # "(transcribing...)"
 
-  paste "$TRANSCRIPTION"
+  # Post-process with LLM if configured
+  if [ -n "$post_process_model" ] && [ -n "$TRANSCRIPTION" ]; then
+    paste "(formatting...)"
+    FORMATTED=$(post_process "$TRANSCRIPTION")
+    delete_n_chars 15 # "(formatting...)"
+    # Only paste if we got a result
+    if [ -n "$FORMATTED" ]; then
+      paste "$FORMATTED"
+    else
+      paste "$TRANSCRIPTION"
+    fi
+  else
+    paste "$TRANSCRIPTION"
+  fi
 
   rm -f "$RECORDING"
 else

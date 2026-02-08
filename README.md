@@ -4,7 +4,16 @@
   <br><br>
 </div>
 
-Dictation at cursor for Linux. Now with **local Whisper** support - no API keys required!
+Dictation at cursor for Linux. Now with **local Whisper** + **AI formatting** support - no API keys required!
+
+## Features
+
+- 🎤 **Local transcription** using Whisper models (no cloud API)
+- 🧠 **AI-powered formatting** via local LLM (Ollama) for grammar, punctuation, and context-aware correction
+- 🔧 **Smart modes**: Auto-detects commands, or manual modes for email/standard text
+- 🚀 **GPU acceleration** with CUDA support
+- 💻 **Works offline** after initial model download
+- ⌨️ **Types at cursor** in any application
 
 ## Installation
 
@@ -12,30 +21,20 @@ Dictation at cursor for Linux. Now with **local Whisper** support - no API keys 
 
 <details>
 <summary>Arch Linux / Manjaro</summary>
-<pre><code>sudo pacman -S pipewire ffmpeg gcc python-pip</code></pre>
+<pre><code>sudo pacman -S pipewire ffmpeg gcc python3-pip nvidia-cuda-toolkit ollama</code></pre>
 </details>
 
 <details>
-<summary>Debian / Ubuntu / Linux Mint</summary>
+<summary>Debian / Ubuntu / Pop!_OS</summary>
 <pre><code>sudo apt update
-sudo apt install pipewire ffmpeg gcc python3-pip</code></pre>
+sudo apt install pipewire ffmpeg gcc python3-pip nvidia-cuda-toolkit
+# Install Ollama from https://ollama.com
+curl -fsSL https://ollama.com/install.sh | sh</code></pre>
 </details>
 
 <details>
 <summary>Fedora / RHEL / AlmaLinux / Rocky</summary>
-<pre><code>sudo dnf install -y pipewire pipewire-utils ffmpeg gcc python3</code></pre>
-</details>
-
-<details>
-<summary>OpenSUSE (Leap / Tumbleweed)</summary>
-<pre><code>sudo zypper refresh
-sudo zypper install pipewire ffmpeg gcc python3</code></pre>
-</details>
-
-<details>
-<summary>Void Linux</summary>
-<pre><code>sudo xbps-install -S
-sudo xbps-install pipewire ffmpeg gcc python3-pip</code></pre>
+<pre><code>sudo dnf install -y pipewire pipewire-utils ffmpeg gcc python3 cuda-toolkit ollama</code></pre>
 </details>
 
 **Note:** `wl-clipboard` (Wayland) or `xclip` (X11) required for non-ASCII but usually pre-installed.
@@ -49,81 +48,54 @@ sudo usermod -aG input $USER
 Then **log out and log back in** (restart is safer) for the group change to take effect.
 
 Check by running:
-
 ```sh
 groups
 ```
-
 You should see `input` in the output.
 
 2. **Install Python dependencies** (faster-whisper):
 ```sh
-pip install --break-system-packages faster-whisper
+pip3 install --break-system-packages faster-whisper
 ```
-Or use a venv if preferred.
 
-3. Clone the repository and install:
+3. **Pull AI formatting model** (Ollama):
+```sh
+ollama pull gemma3:4b
+```
+
+4. Clone the repository and install:
 ```sh
 git clone https://git.bryantnet.net/william/xhisper-local.git
 cd xhisper-local && make
 sudo make install
 ```
 
-4. Configure the model (optional):
+5. Configure:
 ```sh
 mkdir -p ~/.config/xhisper
 cp default_xhisperrc ~/.config/xhisper/xhisperrc
-# Edit ~/.config/xhisper/xhisperrc to change model size, device, etc.
+nano ~/.config/xhisper/xhisperrc
 ```
 
-5. Bind `xhisper` binary to your favorite key:
-
-<details>
-<summary>keyd</summary>
-
-```ini
-[main]
-capslock = layer(dictate)
-
-[dictate:C]
-d = macro(xhisper)
+6. Set up keyboard shortcut (e.g., in COSMIC Settings → Keyboard → Custom Shortcuts):
+```sh
+xhisper                    # Auto mode (default)
+xhisper --mode=command     # For terminal commands
+xhisper --mode=email       # For email bodies
+xhisper --mode=standard    # Plain text formatting
 ```
-</details>
 
-<details>
-<summary>sxhkd</summary>
-
-```
-super + d
-    xhisper
-```
-</details>
-
-<details>
-<summary>i3 / sway</summary>
-
-```
-bindsym $mod+d exec xhisper
-```
-</details>
-
-<details>
-<summary>Hyprland</summary>
-
-```
-bind = $mainMod, D, exec, xhisper
-```
-</details>
+**Recommended shortcut:** `Alt+Shift+D` (avoids conflicts with browsers/editors)
 
 ---
 
 ## Usage
 
-Simply run `xhisper` twice (via your favorite keybinding):
-- **First run**: Starts recording
-- **Second run**: Stops and transcribes
+Simply run `xhisper` twice (via your keybinding):
+- **First run**: Starts recording (shows `(recording...)`)
+- **Second run**: Stops, transcribes, and formats (shows `(transcribing...)` then `(formatting...)`)
 
-The transcription will be typed at your cursor position.
+The formatted transcription will be typed at your cursor position.
 
 **View logs:**
 ```sh
@@ -132,14 +104,12 @@ xhisper --log
 
 **Non-QWERTY layouts:**
 
-For non-QWERTY layouts (e.g. Dvorak, International), set up an input switch key to QWERTY (e.g. rightalt). Then instead of binding to `xhisper`, bind to:
+For non-QWERTY layouts (e.g. Dvorak, International), set up an input switch key to QWERTY (e.g. rightalt). Then bind to:
 ```sh
 xhisper --<your-input-switch-key>
 ```
 
 **Available input switch keys:** `--leftalt`, `--rightalt`, `--leftctrl`, `--rightctrl`, `--leftshift`, `--rightshift`, `--super`
-
-Key chords (like ctrl-space) not available yet.
 
 ---
 
@@ -147,43 +117,83 @@ Key chords (like ctrl-space) not available yet.
 
 Configuration is read from `~/.config/xhisper/xhisperrc`:
 
-```sh
-mkdir -p ~/.config/xhisper
-cp default_xhisperrc ~/.config/xhisper/xhisperrc
-```
+### Whisper Settings
+| Setting | Description | Recommended |
+|---------|-------------|-------------|
+| `model-name` | Whisper model size | `base` (best balance) |
+| `model-device` | Device to use | `cuda` (GPU) or `cpu` |
+| `model-language` | Language code | leave empty for auto |
+| `transcription-prompt` | Context for accuracy | optional |
 
-Available settings:
-- `model-name`: Whisper model size (tiny, base, small, medium, large-v3)
-- `model-device`: Device to use (auto, cpu, cuda)
-- `model-language`: Language code for faster transcription (e.g., en, es, fr)
-- `transcription-prompt`: Context words for better accuracy
-- `silence-threshold`: Volume threshold for silence detection (dB)
+**Available models:** `tiny`, `base`, `small`, `medium`, `large-v3`
+- `tiny` - fastest, least accurate
+- `base` - **recommended**, good speed/accuracy
+- `small` - slower, better accuracy
+- `medium` - much slower, very good accuracy
+- `large-v3` - slowest, best accuracy
+
+### AI Formatting Settings
+| Setting | Description | Recommended |
+|---------|-------------|-------------|
+| `post-process-model` | Ollama model for formatting | `gemma3:4b` |
+| `post-process-mode` | Detection mode | `auto` |
+| `post-process-timeout` | Max seconds for formatting | `10` |
+
+**Available modes:**
+- `auto` - Detects context (commands vs text) automatically
+- `standard` - Grammar, punctuation, capitalization
+- `command` - Linux command syntax correction (e.g., "pseudo" → "sudo")
+- `email` - Email body formatting with proper paragraph breaks
+
+### Other Settings
+- `silence-threshold`: Volume threshold for silence detection (dB, default -50)
 - `non-ascii-*-delay`: Timing for Unicode character pasting
+
+---
+
+## Recommended Setup (Tested)
+
+**Hardware:** NVIDIA RTX 4050 Laptop (6GB VRAM)
+**OS:** Pop!_OS with COSMIC desktop
+
+| Component | Model/Setting | Notes |
+|-----------|---------------|-------|
+| Whisper | `base` | Fast and accurate |
+| Device | `cuda` | GPU acceleration |
+| Formatter | `gemma3:4b` | Excellent grammar/punctuation |
+| Mode | `auto` | Detects commands automatically |
+
+This setup achieves ~1 second transcription + ~1 second formatting for short recordings.
 
 ---
 
 ## Troubleshooting
 
-**Terminal Applications**: Clipboard paste uses Ctrl+V, which doesn't work in terminal emulators (they require Ctrl+Shift+V). Temporary workaround is to remap Ctrl+V to paste in your terminal emulator's settings. Note that *this limitation only affects international/Unicode characters*. ASCII characters (a-z, A-Z, 0-9, punctuation) are typed directly and doesn't care whether terminal or not.
+**Terminal Applications**: Clipboard paste uses Ctrl+V, which doesn't work in terminal emulators (they require Ctrl+Shift+V). Remap Ctrl+V to paste in your terminal's settings, or use `--mode=command` for pure command transcription.
 
-**Non-ASCII Transcription**: Increase non-ascii-*-delay to give the transcription longer timing buffer.
+**GPU not detected**: Ensure NVIDIA drivers and CUDA toolkit are installed. Run `nvidia-smi` to verify.
 
-**GPU not detected**: Ensure CUDA is installed if you want GPU acceleration. Otherwise, set `model-device : cpu` in your config.
+**Formatting not working**: Ensure Ollama is running and the model is pulled (`ollama pull gemma3:4b`).
 
-**First run is slow**: The model downloads on first use. This is cached in `~/.cache/huggingface/hub/`.
+**Keyboard shortcut conflicts**: Avoid `Ctrl+Space` or `Alt+Space` as they conflict with browsers. Use `Alt+Shift+D` or `Ctrl+Alt+D` instead.
+
+**First run is slow**: Models download on first use and are cached in `~/.cache/huggingface/hub/` (Whisper) and `~/.ollama/models/` (Ollama).
 
 ---
 
 ## Changes from upstream
 
-This fork replaces the Groq API with local Whisper transcription using `faster-whisper`:
-- No API key required
-- Works completely offline
-- GPU acceleration via CUDA
-- Configurable model sizes for speed/accuracy tradeoff
+This fork adds significant enhancements to the original xhisper:
+
+- **Local Whisper transcription** via `faster-whisper` (no Groq API)
+- **AI formatting** with local LLM support via Ollama
+- **Smart mode detection** for commands vs text
+- **Multiple formatting modes** (auto, standard, command, email)
+- **GPU acceleration** for both transcription and formatting
+- **Works completely offline** after model download
 
 ---
 
 <p align="center">
-  <em>Low complexity dictation for Linux</em>
+  <em>Low complexity dictation for Linux with AI-powered formatting</em>
 </p>
