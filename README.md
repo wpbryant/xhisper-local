@@ -55,6 +55,25 @@ groups
 ```
 You should see `input` in the output.
 
+### ⚠️ Fix `/dev/uinput` Permissions (Required for many distros)
+
+On Pop!_OS and other Debian-based systems, simply adding your user to the `input` group is often insufficient because the `/dev/uinput` device defaults to being owned by `root`. If `xhisper` fails to start with a "Permission denied" error in `/tmp/xhispertoold.log`, apply this permanent fix:
+
+**Create a custom udev rule:**
+```sh
+echo 'KERNEL=="uinput", GROUP="input", MODE="0660"' | sudo tee /etc/udev/rules.d/99-uinput.rules
+```
+Apply the rule immediately:
+
+```sh
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+Verify access:
+```sh
+ls -l /dev/uinput
+```
+The output should show crw-rw---- 1 root input. If it shows input in the group column, the daemon now has permission to type at your cursor.
+
 2. **Install Python dependencies** (faster-whisper):
 ```sh
 pip3 install --break-system-packages faster-whisper
