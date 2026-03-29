@@ -3,6 +3,9 @@
 # Add CUDA library path for faster-whisper
 export LD_LIBRARY_PATH=/usr/local/lib/ollama/cuda_v12/lib:$LD_LIBRARY_PATH
 
+# Add Linuxbrew to PATH so python3/faster-whisper are found in all environments
+[ -d "/home/linuxbrew/.linuxbrew/bin" ] && export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+
 # xhisper v2.0
 # Dictate anywhere in Linux. Transcription at your cursor.
 # - Transcription via local Whisper models (faster-whisper)
@@ -285,7 +288,7 @@ transcribe() {
   if [ "$LOCAL_MODE" -eq 1 ]; then
     TRANSCRIPT_SCRIPT="$SCRIPT_DIR/xhisper_transcribe.py"
   else
-    TRANSCRIPT_SCRIPT="xhisper_transcribe"
+    TRANSCRIPT_SCRIPT="$(dirname "$(readlink -f "$0")")/xhisper_transcribe"
   fi
 
   # Build command arguments
