@@ -67,7 +67,7 @@ ollama pull gemma3:4b
 
 4. Clone the repository and install:
 ```sh
-git clone https://git.bryantnet.net/william/xhisper-local.git
+git clone git@github.com:wpbryant/xhisper-local.git
 cd xhisper-local && make
 sudo make install
 ```
