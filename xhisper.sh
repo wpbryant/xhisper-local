@@ -1,7 +1,11 @@
 #!/bin/bash
 
-# Add CUDA library path for faster-whisper
-export LD_LIBRARY_PATH=/usr/local/lib/ollama/cuda_v12/lib:$LD_LIBRARY_PATH
+# Add CUDA library paths for faster-whisper.
+# pip-installed nvidia packages (cublas, cudnn, nvrtc) are not on the default
+# loader path, and ctranslate2 needs them when it runs the encoder on the GPU.
+# Resolve their lib dirs at runtime so this works for any python version.
+NV_LIBS=$(python3 -c "import os, site, sysconfig, glob; dirs = [sysconfig.get_paths()['purelib'], site.getusersitepackages()]; print(':'.join(d for base in dirs for d in glob.glob(os.path.join(base, 'nvidia', '*', 'lib')) if os.path.isdir(d)))" 2>/dev/null)
+export LD_LIBRARY_PATH="$NV_LIBS:/usr/local/lib/ollama/cuda_v12/lib:$LD_LIBRARY_PATH"
 
 # xhisper v2.0
 # Dictate anywhere in Linux. Transcription at your cursor.
@@ -133,6 +137,23 @@ fi
 # Check if xhispertool is available
 if ! command -v "$XHISPERTOOL" &> /dev/null; then
     echo "Error: xhispertool not found" >&2
+    echo "Please either:" >&2
+    echo "  - Run 'sudo make install' to install system-wide" >&2
+    echo "  - Run 'xhisper --local' from the build directory" >&2
+    exit 1
+fi
+
+# Resolve transcription script to an absolute path.
+# python3 does not search PATH for script files, so a bare name would only
+# work when the cwd happens to be the install directory.
+if [ "$LOCAL_MODE" -eq 1 ]; then
+    TRANSCRIPT_SCRIPT="$SCRIPT_DIR/xhisper_transcribe.py"
+else
+    TRANSCRIPT_SCRIPT="$(command -v xhisper_transcribe)"
+fi
+
+if [ -z "$TRANSCRIPT_SCRIPT" ] || [ ! -f "$TRANSCRIPT_SCRIPT" ]; then
+    echo "Error: xhisper_transcribe not found" >&2
     echo "Please either:" >&2
     echo "  - Run 'sudo make install' to install system-wide" >&2
     echo "  - Run 'xhisper --local' from the build directory" >&2
@@ -280,13 +301,6 @@ post_process() {
 transcribe() {
   local recording="$1"
   local logging_start=$(date +%s%N)
-
-  # Set up transcription script path
-  if [ "$LOCAL_MODE" -eq 1 ]; then
-    TRANSCRIPT_SCRIPT="$SCRIPT_DIR/xhisper_transcribe.py"
-  else
-    TRANSCRIPT_SCRIPT="xhisper_transcribe"
-  fi
 
   # Build command arguments
   local cmd_args="--model $model_name --device $model_device"
