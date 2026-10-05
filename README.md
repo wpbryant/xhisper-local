@@ -203,13 +203,11 @@ Configuration is read from `~/.config/xhisper/xhisperrc`:
 
 ## Tested Setups
 
-Tested on three machines, all with NVIDIA GPUs. CPU brand doesn't matter much — the default Parakeet engine runs fast on any modern CPU and needs no GPU at all.
+- Custom desktop with a Ryzen 9800X3D and an RTX 5080 (16GB), running Ubuntu 26.04 LTS
+- ASUS ROG Zephyrus G14 laptop with an AMD CPU and an RTX 5070 Ti (12GB), running Fedora Workstation 44
+- Alienware x14 laptop with an Intel CPU and an RTX 4050 (6GB), running Pop!_OS (COSMIC)
 
-| Machine | CPU | GPU | OS |
-|---------|-----|-----|-----|
-| Desktop | AMD Ryzen 7 9800X3D | RTX 5080 (16GB) | Ubuntu 26.04 |
-| ASUS ROG Zephyrus G14 (2025) | AMD Ryzen | RTX 5070 Ti (12GB GDDR7) | Fedora Workstation 44 |
-| Alienware x14 | Intel | RTX 4050 (6GB) | Pop!_OS (COSMIC) |
+All NVIDIA GPUs; CPU brand matters little — the default Parakeet engine runs fast on any modern CPU and needs no GPU at all.
 
 **Recommended configuration** (same on all of them):
 
