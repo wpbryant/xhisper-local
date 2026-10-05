@@ -10,10 +10,12 @@ Dictation at cursor for Linux. Now with **local transcription** (Parakeet/Whispe
 
 ## Features
 
-- 🎤 **Local transcription** using NVIDIA Parakeet or Whisper models (no cloud API)
+- 🎤 **Parakeet-first local transcription** — NVIDIA TDT 0.6B via onnx-asr: ~2x more accurate than whisper-base in English, punctuation & capitalization built in, fast on CPU (whisper remains a config-switch away)
+- ⚡ **No LLM latency for everyday dictation** — Parakeet output is pasted directly; Gemma only runs for command and email modes
 - 🧠 **AI-powered formatting** via local LLM (Ollama) for grammar, punctuation, and context-aware correction
 - 🔧 **Smart modes**: Auto-detects commands, or manual modes for email/standard text
-- 🚀 **GPU acceleration** with CUDA support
+- 🕐 **Pause-safe long dictation** — thinking pauses never drop your words
+- 🚀 **GPU acceleration** with CUDA support (whisper engine)
 - 💻 **Works offline** after initial model download
 - ⌨️ **Types at cursor** in any application
 
@@ -99,14 +101,23 @@ xhisper --mode=standard    # Plain text formatting
 
 Simply run `xhisper` twice (via your keybinding):
 - **First run**: Starts recording (shows `(recording...)`)
-- **Second run**: Stops, transcribes, and formats (shows `(transcribing...)` then `(formatting...)`)
+- **Second run**: Stops and transcribes (shows `(transcribing...)`), then types the result at your cursor. A `(formatting...)` step appears only when an LLM pass actually applies (see the matrix below).
 
-The formatted transcription will be typed at your cursor position.
+**Which pipeline runs?** Engine and mode combine like this:
+
+| Engine | Mode | Pipeline |
+|--------|------|----------|
+| `parakeet` | `auto` (prose) / `standard` | **Parakeet only** — punctuation & capitalization are built in, no LLM round trip |
+| `parakeet` | `auto` (sounds like a command) | Parakeet → Gemma (command correction) |
+| `parakeet` | `command` / `email` | Parakeet → Gemma |
+| `whisper` | any | Whisper → Gemma (original behavior) |
 
 **View logs:**
 ```sh
 xhisper --log
 ```
+
+Every transcription is tagged with its engine (`Transcription [parakeet]` / `[whisper]`), and skips/failures are logged too.
 
 **Non-QWERTY layouts:**
 
@@ -180,7 +191,7 @@ Configuration is read from `~/.config/xhisper/xhisperrc`:
 | Formatter | `gemma3:4b` | Used for command/email modes only |
 | Mode | `auto` | Detects commands automatically |
 
-This setup achieves ~1 second transcription + ~1 second formatting for short recordings.
+This setup achieves ~1.5s end-to-end for standard dictation (transcription only — no LLM pass), or ~1s transcription + ~1s Gemma formatting for command/email modes. Long dictation sessions with thinking pauses are safe: recordings over 25s are VAD-segmented so nothing said after a pause is dropped, and a timed-out formatting pass falls back to your raw transcription instead of pasting truncated text.
 
 ---
 
@@ -205,6 +216,9 @@ python3 -c "import onnx_asr, pathlib; onnx_asr.load_model('nemo-parakeet-tdt-0.6
 
 This is a fork of [xhisper](https://github.com/imaginalnika/xhisper) by [imaginalnika](https://github.com/imaginalnika). The original project used the Groq API for transcription. This fork adds:
 
+- **Parakeet as the default transcription engine** (NVIDIA TDT 0.6B via onnx-asr) — ~2x more accurate than whisper-base in English, punctuates natively, runs fast on CPU; whisper remains available via `transcription-engine`
+- **LLM formatting only where it earns its latency** — standard dictation skips the Ollama pass entirely; Gemma handles command/email modes
+- **Long-dictation safety** — VAD segmentation for long clips, tunable pause threshold (`vad-min-silence-ms`), and timeout-killed formatting falls back to raw text instead of truncating
 - **Local Whisper transcription** via `faster-whisper` (no Groq API)
 - **AI formatting** with local LLM support via Ollama
 - **Smart mode detection** for commands vs text
