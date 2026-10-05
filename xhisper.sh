@@ -5,7 +5,10 @@
 # loader path, and ctranslate2 needs them when it runs the encoder on the GPU.
 # Resolve their lib dirs at runtime so this works for any python version.
 NV_LIBS=$(python3 -c "import os, site, sysconfig, glob; dirs = [sysconfig.get_paths()['purelib'], site.getusersitepackages()]; print(':'.join(d for base in dirs for d in glob.glob(os.path.join(base, 'nvidia', '*', 'lib')) if os.path.isdir(d)))" 2>/dev/null)
-export LD_LIBRARY_PATH="$NV_LIBS:/usr/local/lib/ollama/cuda_v12/lib:$LD_LIBRARY_PATH"
+# Ollama bundles a CUDA 12 runtime (cublas, cudart) directly in cuda_v12/ —
+# there is no lib/ subdir, and it is a fine libcublas.so.12 source for ctranslate2.
+[ -d /usr/local/lib/ollama/cuda_v12 ] && NV_LIBS="$NV_LIBS:/usr/local/lib/ollama/cuda_v12"
+export LD_LIBRARY_PATH="$NV_LIBS:$LD_LIBRARY_PATH"
 
 # xhisper v2.0
 # Dictate anywhere in Linux. Transcription at your cursor.
@@ -24,7 +27,7 @@ export LD_LIBRARY_PATH="$NV_LIBS:/usr/local/lib/ollama/cuda_v12/lib:$LD_LIBRARY_
 # Requirements:
 # - pipewire, pipewire-utils (audio)
 # - wl-clipboard (Wayland) or xclip (X11) for clipboard
-# - ffmpeg (processing)
+# - ffmpeg (ffprobe for duration; recording is pipewire's own wav writer)
 # - Python 3 with faster-whisper
 # - make to build, sudo make install to install
 
@@ -216,18 +219,24 @@ get_duration() {
 is_silent() {
   local recording="$1"
 
-  # Use ffmpeg volumedetect to get mean and max volume
-  local vol_stats=$(ffmpeg -i "$recording" -af "volumedetect" -f null /dev/null 2>&1 | grep -E "mean_volume|max_volume")
-  local max_vol=$(echo "$vol_stats" | grep "max_volume" | awk '{print $5}')
+  # Peak-amplitude check in Python rather than ffmpeg volumedetect:
+  # snap-packaged ffmpeg (often symlinked as ffmpeg on Ubuntu) runs in its
+  # own mount namespace and cannot read files in /tmp, which made the old
+  # check fail open (silence was never detected).
+  python3 - "$recording" "$silence_threshold" <<'EOF'
+import sys, wave, array
 
-  # If max volume is below threshold, consider it silent
-  # Note: ffmpeg reports in dB, negative values (e.g., -50 dB is quiet)
-  if [ -n "$max_vol" ]; then
-    local is_quiet=$(echo "$max_vol < $silence_threshold" | bc -l)
-    [ "$is_quiet" -eq 1 ] && return 0
-  fi
-
-  return 1
+path, threshold = sys.argv[1], float(sys.argv[2])
+# dBFS threshold -> 16-bit sample amplitude (e.g., -50 dB -> ~104)
+limit = 32768 * 10 ** (threshold / 20)
+try:
+    w = wave.open(path)
+    data = array.array('h', w.readframes(w.getnframes()))
+    peak = max(map(abs, data)) if data else 0
+except Exception:
+    peak = 32768  # unreadable file: assume not silent and let whisper try
+sys.exit(0 if peak < limit else 1)
+EOF
 }
 
 logging_end_and_write_to_logfile() {
@@ -313,8 +322,9 @@ transcribe() {
     cmd_args="$cmd_args --prompt \"$transcription_prompt\""
   fi
 
-  # Run transcription
-  local transcription=$(python3 "$TRANSCRIPT_SCRIPT" "$recording" $cmd_args 2>/dev/null)
+  # Run transcription — stderr goes to the log so failures are diagnosable
+  # via 'xhisper --log' instead of silently producing empty output
+  local transcription=$(python3 "$TRANSCRIPT_SCRIPT" "$recording" $cmd_args 2>>"$LOGFILE")
 
   logging_end_and_write_to_logfile "Transcription" "$transcription" "$logging_start"
 

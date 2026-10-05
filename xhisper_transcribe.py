@@ -12,6 +12,24 @@ from pathlib import Path
 # Configure logging to suppress verbose output
 logging.getLogger("faster_whisper").setLevel(logging.WARNING)
 
+# Compat: PyAV 15+ removed the metadata_errors argument from av.open(), but
+# faster-whisper 1.2.x still passes it, which crashes every transcription
+# with "open() got an unexpected keyword argument 'metadata_errors'".
+# Shim av.open to drop the argument until faster-whisper catches up.
+try:
+    import av
+
+    if int(av.__version__.split(".")[0]) >= 15:
+        _av_open = av.open
+
+        def _av_open_compat(*args, **kwargs):
+            kwargs.pop("metadata_errors", None)
+            return _av_open(*args, **kwargs)
+
+        av.open = _av_open_compat
+except ImportError:
+    pass
+
 def transcribe_file(
     audio_path: str,
     model_size: str = "base",
