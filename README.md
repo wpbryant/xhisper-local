@@ -126,7 +126,7 @@ Simply run `xhisper` twice (via your keybinding):
 
 | Engine | Mode | Pipeline |
 |--------|------|----------|
-| `parakeet` | `auto` (prose) / `standard` | **Parakeet only** — punctuation & capitalization are built in, no LLM round trip |
+| `parakeet` | `auto` (prose) / `standard` | **Parakeet only** — punctuation & capitalization are built in, no LLM round trip (set `post-process-standard : on` to add the Gemma pass anyway) |
 | `parakeet` | `auto` (sounds like a command) | Parakeet → Gemma (command correction) |
 | `parakeet` | `command` / `email` | Parakeet → Gemma |
 | `whisper` | any | Whisper → Gemma (original behavior) |
@@ -184,13 +184,16 @@ Configuration is read from `~/.config/xhisper/xhisperrc`:
 |---------|-------------|-------------|
 | `post-process-model` | Ollama model for formatting | `gemma3:4b` |
 | `post-process-mode` | Detection mode | `auto` |
+| `post-process-standard` | LLM pass for standard text (`auto`/`on`/`off`) | `auto` |
 | `post-process-timeout` | Max seconds for formatting | `10` |
 
 **Available modes:**
 - `auto` - Detects context (commands vs text) automatically
-- `standard` - Grammar, punctuation, capitalization (skipped for parakeet — already punctuated)
+- `standard` - Grammar, punctuation, capitalization
 - `command` - Linux command syntax correction (e.g., "pseudo" → "sudo")
 - `email` - Email body formatting with proper paragraph breaks
+
+`post-process-standard` controls whether plain (non-command/email) text gets the LLM pass: `auto` skips it when the parakeet engine already punctuates (fastest), `on` always formats — use this if you want fuller Gemma cleanup on top of parakeet (~1s extra per dictation), `off` never formats standard text. Command and email modes always use the LLM.
 
 ### Other Settings
 - `silence-threshold`: Volume threshold for silence detection (dB, default -50)

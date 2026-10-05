@@ -26,6 +26,9 @@ export LD_LIBRARY_PATH="$NV_LIBS:$LD_LIBRARY_PATH"
 # - silence-percentage : percentage of recording that must be silent (e.g., 95)
 # - non-ascii-initial-delay : sleep after first non-ASCII paste (seconds)
 # - non-ascii-default-delay : sleep after subsequent non-ASCII pastes (seconds)
+# - post-process-standard : LLM pass for standard text - auto (skip when
+#   parakeet already punctuates), on (always), off (never; command/email
+#   modes are unaffected and always use the LLM)
 # Note: model-language, transcription-prompt, and vad-min-silence-ms apply to
 # the whisper engine only; parakeet v2 is English-only, v3 auto-detects.
 
@@ -101,6 +104,7 @@ non_ascii_default_delay=0.025
 post_process_model=""
 post_process_timeout=10
 post_process_mode="auto"
+post_process_standard="auto"
 
 CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/xhisper/xhisperrc"
 
@@ -129,6 +133,7 @@ if [ -f "$CONFIG_FILE" ]; then
       post-process-model) post_process_model="$value" ;;
       post-process-timeout) post_process_timeout="$value" ;;
       post-process-mode) post_process_mode="$value" ;;
+      post-process-standard) post_process_standard="$value" ;;
     esac
   done < "$CONFIG_FILE"
 fi
@@ -277,6 +282,17 @@ detect_mode() {
   fi
 }
 
+# Should the LLM pass be skipped for standard-mode text?
+#   auto (default): skip when the parakeet engine already punctuates
+#   on  : always run the LLM for standard text (even on parakeet)
+#   off : never run the LLM for standard text (command/email unaffected)
+skip_standard_formatting() {
+  [ "$1" = "standard" ] || return 1
+  [ "$post_process_standard" = "off" ] && return 0
+  [ "$post_process_standard" = "on" ] && return 1
+  [ "$transcription_engine" = "parakeet" ]
+}
+
 post_process() {
   local text="$1"
   local mode="${2:-$post_process_mode}"
@@ -296,10 +312,10 @@ post_process() {
   # Resolve auto-detection
   mode=$(detect_mode "$text" "$mode")
 
-  # Parakeet output is already punctuated and capitalized — skip the LLM
-  # for plain text. command/email still get LLM treatment on both engines.
-  if [ "$transcription_engine" = "parakeet" ] && [ "$mode" = "standard" ]; then
-    logging_end_and_write_to_logfile "Post-Process [standard] (skipped: parakeet already punctuates)" "$text" "$logging_start"
+  # Standard text may skip the LLM — see skip_standard_formatting().
+  # command/email always get LLM treatment on both engines.
+  if skip_standard_formatting "$mode"; then
+    logging_end_and_write_to_logfile "Post-Process [standard] (skipped: post-process-standard=$post_process_standard)" "$text" "$logging_start"
     echo "$text"
     return
   fi
@@ -408,9 +424,9 @@ if pgrep -f "$PROCESS_PATTERN" > /dev/null; then
   fi
 
   # Post-process with LLM if configured. Skip the whole "(formatting...)"
-  # round trip when parakeet + standard mode would no-op anyway.
+  # round trip when the standard-mode skip would no-op anyway.
   if [ -n "$post_process_model" ] && [ -n "$TRANSCRIPTION" ] && \
-     ! { [ "$transcription_engine" = "parakeet" ] && [ "$(detect_mode "$TRANSCRIPTION" "$post_process_mode")" = "standard" ]; }; then
+     ! skip_standard_formatting "$(detect_mode "$TRANSCRIPTION" "$post_process_mode")"; then
     paste "(formatting...)"
     FORMATTED=$(post_process "$TRANSCRIPTION")
     delete_n_chars 15 # "(formatting...)"

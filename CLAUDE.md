@@ -49,7 +49,7 @@ User presses hotkey → xhisper.sh toggles recording state
       ├─ Silent: type "(no sound detected)", exit
       └─ Not silent:
           ├─ transcribe via parakeet (default) or faster-whisper
-          ├─ if post-process-model set AND NOT (parakeet + standard mode): format via Ollama
+          ├─ if post-process-model set AND NOT skip_standard_formatting: format via Ollama
           └─ type result via daemon
 ```
 
@@ -70,7 +70,8 @@ Key settings:
 - `model-name`: Whisper size (tiny, base, small, medium, large-v3) — whisper engine only
 - `model-device`: auto, cpu, or cuda — whisper engine only
 - `vad-min-silence-ms`: pause length before whisper VAD splits (default 5000)
-- `post-process-model`: Ollama model (e.g., gemma3:4b); used for command/email modes, skipped for parakeet+standard
+- `post-process-model`: Ollama model (e.g., gemma3:4b); used for command/email modes, and for standard text per the next key
+- `post-process-standard`: LLM pass for standard text — auto (skip when parakeet punctuates, default), on (always), off (never; command/email unaffected)
 - `post-process-mode`: auto, standard, command, email
 - `post-process-timeout`: Max seconds for LLM formatting (on timeout the raw transcription is kept)
 

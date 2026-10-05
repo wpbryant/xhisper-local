@@ -60,6 +60,12 @@ silence-percentage : 95
 #   standard: normal grammar/punctuation fixes
 #   command: preserves command syntax, fixes command names
 #   email: formats as email with salutations and sign-offs
+# - post-process-standard : LLM pass for standard (non-command/email) text
+#   auto: skip it when parakeet already punctuates — fastest (default)
+#   on: always run the LLM, e.g. if you want fuller cleanup than
+#   parakeet's built-in punctuation provides (adds ~1s per dictation)
+#   off: never run it for standard text (command/email unaffected)
 post-process-model     : ""
 post-process-timeout   : 10
 post-process-mode      : auto
+post-process-standard  : auto
