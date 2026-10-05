@@ -30,11 +30,12 @@ export LD_LIBRARY_PATH="$NV_LIBS:$LD_LIBRARY_PATH"
 # the whisper engine only; parakeet v2 is English-only, v3 auto-detects.
 
 # Requirements:
-# - pipewire, pipewire-utils (audio)
-# - wl-clipboard (Wayland) or xclip (X11) for clipboard
-# - ffmpeg (ffprobe for duration; recording is pipewire's own wav writer)
-# - Python 3 with faster-whisper (whisper engine) and onnx-asr (parakeet engine)
+# - pipewire with pw-record (pipewire-bin on Debian/Ubuntu, pipewire-utils on Fedora)
+# - wl-clipboard (Wayland) or xclip (X11) — required, non-ASCII is pasted via clipboard
+# - bc (timing in the log)
+# - Python 3 with onnx-asr (parakeet engine) and/or faster-whisper (whisper engine)
 # - make to build, sudo make install to install
+# Optional: ollama for command/email formatting; CUDA toolkit for whisper on GPU
 
 # Parse command-line arguments
 LOCAL_MODE=0
@@ -220,11 +221,6 @@ delete_n_chars() {
   for ((i=0; i<n; i++)); do
     "$XHISPERTOOL" backspace
   done
-}
-
-get_duration() {
-  local recording="$1"
-  ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$recording" 2>/dev/null || echo "0"
 }
 
 is_silent() {

@@ -23,25 +23,44 @@ Dictation at cursor for Linux. Now with **local transcription** (Parakeet/Whispe
 
 ### Dependencies
 
+**Required** for every install:
+
+| Dependency | Why |
+|------------|-----|
+| `pipewire` + `pw-record` | audio capture (`pipewire-bin` on Debian/Ubuntu, `pipewire-utils` on Fedora) |
+| `wl-clipboard` (Wayland) or `xclip` (X11) | clipboard paste for non-ASCII characters — the script exits without one, and it is **not** in Ubuntu's default install |
+| `bc` | timing entries in the log |
+| `gcc`, `make`, `python3-pip` | build the typing daemon, install |
+
+**Optional**, depending on what you use:
+
+| Dependency | Needed for |
+|------------|-----------|
+| Ollama + a model (e.g., `gemma3:4b`) | `command` / `email` formatting modes only — standard dictation with Parakeet needs no LLM at all |
+| `faster-whisper` (pip) | the `whisper` engine only |
+| NVIDIA CUDA toolkit | GPU acceleration for the whisper engine — Parakeet runs fast on CPU |
+
 <details>
 <summary>Arch Linux / Manjaro</summary>
-<pre><code>sudo pacman -S pipewire ffmpeg gcc python3-pip nvidia-cuda-toolkit ollama</code></pre>
+<pre><code>sudo pacman -S --needed pipewire wl-clipboard bc gcc make python-pip
+# Optional (AI formatting): install ollama from https://ollama.com or AUR</code></pre>
 </details>
 
 <details>
 <summary>Debian / Ubuntu / Pop!_OS</summary>
 <pre><code>sudo apt update
-sudo apt install pipewire ffmpeg gcc python3-pip nvidia-cuda-toolkit
-# Install Ollama from https://ollama.com
+sudo apt install pipewire pipewire-bin wl-clipboard bc gcc make python3-pip
+# Optional (AI formatting): install Ollama from https://ollama.com
 curl -fsSL https://ollama.com/install.sh | sh</code></pre>
 </details>
 
 <details>
 <summary>Fedora / RHEL / AlmaLinux / Rocky</summary>
-<pre><code>sudo dnf install -y pipewire pipewire-utils ffmpeg gcc python3 cuda-toolkit ollama</code></pre>
+<pre><code>sudo dnf install -y pipewire pipewire-utils wl-clipboard bc gcc make python3-pip
+# Optional (AI formatting): install ollama from https://ollama.com</code></pre>
 </details>
 
-**Note:** `wl-clipboard` (Wayland) or `xclip` (X11) required for non-ASCII but usually pre-installed.
+Note: `ffmpeg` is **not** required — recording uses PipeWire's own WAV writer and both engines read WAV natively.
 
 ### Setup
 
@@ -66,7 +85,7 @@ pip3 install --break-system-packages onnx-asr
 pip3 install --break-system-packages faster-whisper
 ```
 
-3. **Pull AI formatting model** (Ollama):
+3. **Pull AI formatting model** (optional — only needed for `command`/`email` modes; standard Parakeet dictation skips the LLM entirely):
 ```sh
 ollama pull gemma3:4b
 ```
