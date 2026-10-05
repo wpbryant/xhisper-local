@@ -201,10 +201,17 @@ Configuration is read from `~/.config/xhisper/xhisperrc`:
 
 ---
 
-## Recommended Setup (Tested)
+## Tested Setups
 
-**Hardware:** NVIDIA RTX 4050 Laptop (6GB VRAM)
-**OS:** Pop!_OS with COSMIC desktop
+Tested on three machines, all with NVIDIA GPUs. CPU brand doesn't matter much — the default Parakeet engine runs fast on any modern CPU and needs no GPU at all.
+
+| Machine | CPU | GPU | OS |
+|---------|-----|-----|-----|
+| Desktop | AMD Ryzen 7 9800X3D | RTX 5080 (16GB) | Ubuntu 26.04 |
+| ASUS ROG Zephyrus G14 | AMD Ryzen | RTX 5070 Ti | Fedora |
+| Laptop | — | RTX 4050 (6GB) | Pop!_OS (COSMIC) |
+
+**Recommended configuration** (same on all of them):
 
 | Component | Model/Setting | Notes |
 |-----------|---------------|-------|
@@ -213,7 +220,7 @@ Configuration is read from `~/.config/xhisper/xhisperrc`:
 | Formatter | `gemma3:4b` | Used for command/email modes only |
 | Mode | `auto` | Detects commands automatically |
 
-This setup achieves ~1.5s end-to-end for standard dictation (transcription only — no LLM pass), or ~1s transcription + ~1s Gemma formatting for command/email modes. Long dictation sessions with thinking pauses are safe: recordings over 25s are VAD-segmented so nothing said after a pause is dropped, and a timed-out formatting pass falls back to your raw transcription instead of pasting truncated text.
+This achieves ~1.5s end-to-end for standard dictation (transcription only — no LLM pass), or ~1s transcription + ~1s Gemma formatting for command/email modes. Long dictation sessions with thinking pauses are safe: recordings over 25s are VAD-segmented so nothing said after a pause is dropped, and a timed-out formatting pass falls back to your raw transcription instead of pasting truncated text.
 
 ---
 
