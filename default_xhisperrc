@@ -2,7 +2,21 @@
 # Copy to ~/.config/xhisper/xhisperrc and customize
 # When in doubt, check by running 'xhisper --log'
 
-# Whisper Model Settings:
+# Transcription Engine:
+# - parakeet : NVIDIA Parakeet TDT 0.6B via onnx-asr — more accurate than
+#   whisper-base in English and already outputs punctuation + capitalization,
+#   so standard dictation skips the LLM formatting pass entirely.
+#   Requires: pip3 install --break-system-packages onnx-asr
+#   First use downloads ~1GB to ~/.cache/xhisper/parakeet (one time).
+# - whisper : the original faster-whisper engine
+transcription-engine : parakeet
+
+# Parakeet model (parakeet engine only):
+# - nemo-parakeet-tdt-0.6b-v2 : English only (best English accuracy)
+# - nemo-parakeet-tdt-0.6b-v3 : multilingual (25 languages, auto-detects)
+parakeet-model : nemo-parakeet-tdt-0.6b-v2
+
+# Whisper Model Settings (whisper engine only):
 # Available models: tiny, base, small, medium, large-v3
 # - tiny: fastest, least accurate (~1GB RAM)
 # - base: fast, decent accuracy (~1GB RAM) [recommended]
@@ -23,6 +37,10 @@ model-language : ""
 
 # Transcription Settings:
 transcription-prompt     : ""
+
+# VAD: silence (ms) before the whisper VAD splits segments. Raise this if
+# speech after a thinking pause still gets dropped (whisper engine only).
+vad-min-silence-ms : 5000
 
 # Paste Timing (seconds):
 non-ascii-initial-delay : 0.15 # Increase this if first character comes out wrong.

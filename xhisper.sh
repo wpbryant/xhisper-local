@@ -15,20 +15,25 @@ export LD_LIBRARY_PATH="$NV_LIBS:$LD_LIBRARY_PATH"
 # - Transcription via local Whisper models (faster-whisper)
 
 # Configuration (see default_xhisperrc or ~/.config/xhisper/xhisperrc):
+# - transcription-engine : parakeet or whisper (default parakeet)
+# - parakeet-model : onnx-asr model for the parakeet engine
 # - model-name : Whisper model size (tiny, base, small, medium, large-v3)
 # - model-device : Device to use (auto, cpu, cuda)
 # - model-language : Language code for faster/more accurate transcription (e.g., en)
 # - transcription-prompt : context words for better Whisper accuracy
+# - vad-min-silence-ms : silence before the whisper VAD splits segments (whisper only)
 # - silence-threshold : max volume in dB to consider silent (e.g., -50)
 # - silence-percentage : percentage of recording that must be silent (e.g., 95)
 # - non-ascii-initial-delay : sleep after first non-ASCII paste (seconds)
 # - non-ascii-default-delay : sleep after subsequent non-ASCII pastes (seconds)
+# Note: model-language, transcription-prompt, and vad-min-silence-ms apply to
+# the whisper engine only; parakeet v2 is English-only, v3 auto-detects.
 
 # Requirements:
 # - pipewire, pipewire-utils (audio)
 # - wl-clipboard (Wayland) or xclip (X11) for clipboard
 # - ffmpeg (ffprobe for duration; recording is pipewire's own wav writer)
-# - Python 3 with faster-whisper
+# - Python 3 with faster-whisper (whisper engine) and onnx-asr (parakeet engine)
 # - make to build, sudo make install to install
 
 # Parse command-line arguments
@@ -81,10 +86,13 @@ LOGFILE="/tmp/xhisper.log"
 PROCESS_PATTERN="pw-record.*$RECORDING"
 
 # Default configuration
+transcription_engine="parakeet"
+parakeet_model="nemo-parakeet-tdt-0.6b-v2"
 model_name="base"
 model_device="auto"
 model_language=""
 transcription_prompt=""
+vad_min_silence_ms=5000
 silence_threshold=-50
 silence_percentage=95
 non_ascii_initial_delay=0.1
@@ -106,10 +114,13 @@ if [ -f "$CONFIG_FILE" ]; then
     value=$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^"//;s/"$//')
 
     case "$key" in
+      transcription-engine) transcription_engine="$value" ;;
+      parakeet-model) parakeet_model="$value" ;;
       model-name) model_name="$value" ;;
       model-device) model_device="$value" ;;
       model-language) model_language="$value" ;;
       transcription-prompt) transcription_prompt="$value" ;;
+      vad-min-silence-ms) vad_min_silence_ms="$value" ;;
       silence-threshold) silence_threshold="$value" ;;
       silence-percentage) silence_percentage="$value" ;;
       non-ascii-initial-delay) non_ascii_initial_delay="$value" ;;
@@ -252,6 +263,24 @@ logging_end_and_write_to_logfile() {
   echo "Time: ${time}s" >> "$LOGFILE"
 }
 
+detect_mode() {
+  local text="$1"
+  local mode="${2:-$post_process_mode}"
+
+  if [ "$mode" != "auto" ]; then
+    echo "$mode"
+    return
+  fi
+
+  # Check for command indicators
+  if echo "$text" | grep -qE "^(sudo |apt |git |npm |pip |systemctl |docker |cd |ls |mkdir |rm |cp |mv |grep |find |cat |tail |head |ssh |curl |wget |make |cargo |python |node |code |vim |nano |man |chmod |chown |ln |tar |zip |unzip |mount |umount |ps |kill |top |htop |df |du |free |uname |export |alias |source |exit |pseudo )|^(apt|git|npm|pip|sudo|systemctl|docker|cargo) " || \
+     echo "$text" | grep -qE " (install|update|upgrade|remove|purge|status|start|stop|restart|enable|disable|clone|pull|push|commit|add|log|diff|checkout|branch|merge|rebase|init)( |$)"; then
+    echo "command"
+  else
+    echo "standard"
+  fi
+}
+
 post_process() {
   local text="$1"
   local mode="${2:-$post_process_mode}"
@@ -268,18 +297,18 @@ post_process() {
     return
   fi
 
-  local prompt
+  # Resolve auto-detection
+  mode=$(detect_mode "$text" "$mode")
 
-  # Auto-detect mode
-  if [ "$mode" = "auto" ]; then
-    # Check for command indicators
-    if echo "$text" | grep -qE "^(sudo |apt |git |npm |pip |systemctl |docker |cd |ls |mkdir |rm |cp |mv |grep |find |cat |tail |head |ssh |curl |wget |make |cargo |python |node |code |vim |nano |man |chmod |chown |ln |tar |zip |unzip |mount |umount |ps |kill |top |htop |df |du |free |uname |export |alias |source |exit |pseudo )|^(apt|git|npm|pip|sudo|systemctl|docker|cargo) " || \
-       echo "$text" | grep -qE " (install|update|upgrade|remove|purge|status|start|stop|restart|enable|disable|clone|pull|push|commit|add|log|diff|checkout|branch|merge|rebase|init)( |$)"; then
-      mode="command"
-    else
-      mode="standard"
-    fi
+  # Parakeet output is already punctuated and capitalized — skip the LLM
+  # for plain text. command/email still get LLM treatment on both engines.
+  if [ "$transcription_engine" = "parakeet" ] && [ "$mode" = "standard" ]; then
+    logging_end_and_write_to_logfile "Post-Process [standard] (skipped: parakeet already punctuates)" "$text" "$logging_start"
+    echo "$text"
+    return
   fi
+
+  local prompt
 
   # Build prompt based on mode
   case "$mode" in
@@ -294,12 +323,32 @@ post_process() {
       ;;
   esac
 
-  # Run ollama with timeout
-  local result=$(echo "$prompt" | timeout "$post_process_timeout" ollama run "$post_process_model" 2>/dev/null | tr -d '\n\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  # Run ollama with timeout. The pipeline writes to a temp file (not command
+  # substitution) so PIPESTATUS is visible here — pipelines inside $(...)
+  # run in a subshell and leave the parent's PIPESTATUS empty.
+  local result_file
+  result_file=$(mktemp)
+  echo "$prompt" | timeout "$post_process_timeout" ollama run "$post_process_model" 2>/dev/null \
+    | tr -d '\n\r' \
+    | sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//' > "$result_file"
+  local -a statuses=("${PIPESTATUS[@]}")   # [1] = the timeout/ollama segment
+  local result
+  result=$(<"$result_file")
+  rm -f "$result_file"
+
+  # Timeout (124 = SIGTERM, 137 = SIGKILL) or ollama crash: never paste
+  # partial output — a killed run leaves whatever it already flushed in the
+  # pipe, which would truncate the middle of the text.
+  if [ "${statuses[1]}" -ne 0 ]; then
+    echo "Warning: post-process failed (exit ${statuses[1]} after ${post_process_timeout}s, mode=$mode); keeping original transcription" >> "$LOGFILE"
+    logging_end_and_write_to_logfile "Post-Process [$mode] FAILED (exit ${statuses[1]})" "$text" "$logging_start"
+    echo "$text"
+    return
+  fi
 
   logging_end_and_write_to_logfile "Post-Process [$mode]" "$result" "$logging_start"
 
-  # If ollama failed or timed out, return original text
+  # If ollama produced nothing, return original text
   if [ -z "$result" ]; then
     echo "$text"
   else
@@ -311,22 +360,24 @@ transcribe() {
   local recording="$1"
   local logging_start=$(date +%s%N)
 
-  # Build command arguments
-  local cmd_args="--model $model_name --device $model_device"
+  # Build command arguments as an array so multi-word values (e.g. a
+  # multi-word transcription-prompt) survive as single arguments
+  local -a cmd_args=(--engine "$transcription_engine")
 
-  if [ -n "$model_language" ]; then
-    cmd_args="$cmd_args --language $model_language"
-  fi
-
-  if [ -n "$transcription_prompt" ]; then
-    cmd_args="$cmd_args --prompt \"$transcription_prompt\""
+  if [ "$transcription_engine" = "parakeet" ]; then
+    cmd_args+=(--parakeet-model "$parakeet_model")
+  else
+    cmd_args+=(--model "$model_name" --device "$model_device" --vad-min-silence-ms "$vad_min_silence_ms")
+    [ -n "$model_language" ] && cmd_args+=(--language "$model_language")
+    [ -n "$transcription_prompt" ] && cmd_args+=(--prompt "$transcription_prompt")
   fi
 
   # Run transcription — stderr goes to the log so failures are diagnosable
   # via 'xhisper --log' instead of silently producing empty output
-  local transcription=$(python3 "$TRANSCRIPT_SCRIPT" "$recording" $cmd_args 2>>"$LOGFILE")
+  local transcription
+  transcription=$(python3 "$TRANSCRIPT_SCRIPT" "$recording" "${cmd_args[@]}" 2>>"$LOGFILE")
 
-  logging_end_and_write_to_logfile "Transcription" "$transcription" "$logging_start"
+  logging_end_and_write_to_logfile "Transcription [$transcription_engine]" "$transcription" "$logging_start"
 
   echo "$transcription"
 }
@@ -351,8 +402,19 @@ if pgrep -f "$PROCESS_PATTERN" > /dev/null; then
   TRANSCRIPTION=$(transcribe "$RECORDING")
   delete_n_chars 17 # "(transcribing...)"
 
-  # Post-process with LLM if configured
-  if [ -n "$post_process_model" ] && [ -n "$TRANSCRIPTION" ]; then
+  # Engine failed (e.g. onnx-asr missing, model error) — errors are in the log
+  if [ -z "$TRANSCRIPTION" ]; then
+    paste "(transcription failed - see xhisper --log)"
+    sleep 1.5
+    delete_n_chars 42 # "(transcription failed - see xhisper --log)"
+    rm -f "$RECORDING"
+    exit 1
+  fi
+
+  # Post-process with LLM if configured. Skip the whole "(formatting...)"
+  # round trip when parakeet + standard mode would no-op anyway.
+  if [ -n "$post_process_model" ] && [ -n "$TRANSCRIPTION" ] && \
+     ! { [ "$transcription_engine" = "parakeet" ] && [ "$(detect_mode "$TRANSCRIPTION" "$post_process_mode")" = "standard" ]; }; then
     paste "(formatting...)"
     FORMATTED=$(post_process "$TRANSCRIPTION")
     delete_n_chars 15 # "(formatting...)"

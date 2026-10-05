@@ -4,13 +4,13 @@
   <br><br>
 </div>
 
-Dictation at cursor for Linux. Now with **local Whisper** + **AI formatting** support - no API keys required!
+Dictation at cursor for Linux. Now with **local transcription** (Parakeet/Whisper) + **AI formatting** support - no API keys required!
 
 **Original project by [imaginalnika](https://github.com/imaginalnika/xhisper)** - This fork adds local Whisper transcription and AI formatting.
 
 ## Features
 
-- 🎤 **Local transcription** using Whisper models (no cloud API)
+- 🎤 **Local transcription** using NVIDIA Parakeet or Whisper models (no cloud API)
 - 🧠 **AI-powered formatting** via local LLM (Ollama) for grammar, punctuation, and context-aware correction
 - 🔧 **Smart modes**: Auto-detects commands, or manual modes for email/standard text
 - 🚀 **GPU acceleration** with CUDA support
@@ -55,8 +55,12 @@ groups
 ```
 You should see `input` in the output.
 
-2. **Install Python dependencies** (faster-whisper):
+2. **Install Python dependencies**:
 ```sh
+# Parakeet engine (default) — deps (onnxruntime, huggingface-hub, numpy) usually already present
+pip3 install --break-system-packages onnx-asr
+
+# Whisper engine (optional fallback)
 pip3 install --break-system-packages faster-whisper
 ```
 
@@ -119,13 +123,24 @@ xhisper --<your-input-switch-key>
 
 Configuration is read from `~/.config/xhisper/xhisperrc`:
 
-### Whisper Settings
+### Transcription Engine Settings
+| Setting | Description | Recommended |
+|---------|-------------|-------------|
+| `transcription-engine` | `parakeet` or `whisper` | `parakeet` (default) |
+| `parakeet-model` | onnx-asr model name | `nemo-parakeet-tdt-0.6b-v2` |
+
+**Why Parakeet?** It's ~2x more accurate than whisper-base in English and outputs punctuated, capitalized text natively — so standard dictation skips the LLM formatting pass entirely (faster, no Gemma spin-up). Gemma is still used for `command` and `email` modes. Long recordings (>25s) are automatically segmented with Silero VAD so nothing after a thinking pause is lost. First use downloads ~1GB to `~/.cache/xhisper/parakeet`.
+
+**Parakeet models:** `nemo-parakeet-tdt-0.6b-v2` (English, best accuracy), `nemo-parakeet-tdt-0.6b-v3` (25 languages, auto-detects)
+
+### Whisper Settings (whisper engine only)
 | Setting | Description | Recommended |
 |---------|-------------|-------------|
 | `model-name` | Whisper model size | `base` (best balance) |
 | `model-device` | Device to use | `cuda` (GPU) or `cpu` |
 | `model-language` | Language code | leave empty for auto |
 | `transcription-prompt` | Context for accuracy | optional |
+| `vad-min-silence-ms` | Pause length before VAD splits segments | `5000` |
 
 **Available models:** `tiny`, `base`, `small`, `medium`, `large-v3`
 - `tiny` - fastest, least accurate
@@ -143,7 +158,7 @@ Configuration is read from `~/.config/xhisper/xhisperrc`:
 
 **Available modes:**
 - `auto` - Detects context (commands vs text) automatically
-- `standard` - Grammar, punctuation, capitalization
+- `standard` - Grammar, punctuation, capitalization (skipped for parakeet — already punctuated)
 - `command` - Linux command syntax correction (e.g., "pseudo" → "sudo")
 - `email` - Email body formatting with proper paragraph breaks
 
@@ -160,9 +175,9 @@ Configuration is read from `~/.config/xhisper/xhisperrc`:
 
 | Component | Model/Setting | Notes |
 |-----------|---------------|-------|
-| Whisper | `base` | Fast and accurate |
-| Device | `cuda` | GPU acceleration |
-| Formatter | `gemma3:4b` | Excellent grammar/punctuation |
+| Engine | `parakeet` | More accurate than whisper-base, punctuates natively |
+| Parakeet model | `nemo-parakeet-tdt-0.6b-v2` | English, runs fast on CPU |
+| Formatter | `gemma3:4b` | Used for command/email modes only |
 | Mode | `auto` | Detects commands automatically |
 
 This setup achieves ~1 second transcription + ~1 second formatting for short recordings.
@@ -179,7 +194,10 @@ This setup achieves ~1 second transcription + ~1 second formatting for short rec
 
 **Keyboard shortcut conflicts**: Avoid `Ctrl+Space` or `Alt+Space` as they conflict with browsers. Use `Alt+Shift+D` or `Ctrl+Alt+D` instead.
 
-**First run is slow**: Models download on first use and are cached in `~/.cache/huggingface/hub/` (Whisper) and `~/.ollama/models/` (Ollama).
+**First run is slow**: Models download on first use and are cached in `~/.cache/xhisper/parakeet/` (Parakeet ~1GB), `~/.cache/huggingface/hub/` (Whisper) and `~/.ollama/models/` (Ollama). Pre-warm before your first dictation:
+```sh
+python3 -c "import onnx_asr, pathlib; onnx_asr.load_model('nemo-parakeet-tdt-0.6b-v2', pathlib.Path.home()/'.cache/xhisper/parakeet')"
+```
 
 ---
 
