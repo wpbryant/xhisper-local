@@ -209,7 +209,7 @@ Tested on three machines, all with NVIDIA GPUs. CPU brand doesn't matter much â€
 |---------|-----|-----|-----|
 | Desktop | AMD Ryzen 7 9800X3D | RTX 5080 (16GB) | Ubuntu 26.04 |
 | ASUS ROG Zephyrus G14 | AMD Ryzen | RTX 5070 Ti | Fedora |
-| Laptop | â€” | RTX 4050 (6GB) | Pop!_OS (COSMIC) |
+| Laptop | Intel | RTX 4050 (6GB) | Pop!_OS (COSMIC) |
 
 **Recommended configuration** (same on all of them):
 
