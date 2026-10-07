@@ -318,8 +318,8 @@ detect_mode() {
   fi
 
   # Check for command indicators
-  if echo "$text" | grep -qE "^(sudo |apt |git |npm |pip |systemctl |docker |cd |ls |mkdir |rm |cp |mv |grep |find |cat |tail |head |ssh |curl |wget |make |cargo |python |node |code |vim |nano |man |chmod |chown |ln |tar |zip |unzip |mount |umount |ps |kill |top |htop |df |du |free |uname |export |alias |source |exit |pseudo )|^(apt|git|npm|pip|sudo|systemctl|docker|cargo) " || \
-     echo "$text" | grep -qE " (install|update|upgrade|remove|purge|status|start|stop|restart|enable|disable|clone|pull|push|commit|add|log|diff|checkout|branch|merge|rebase|init)( |$)"; then
+  if echo "$text" | grep -qE "^(sudo |apt |apt-get |git |npm |pip |systemctl |docker |podman |cd |ls |mkdir |rm |cp |mv |grep |find |cat |tail |head |ssh |curl |wget |make |cargo |python |node |code |vim |nano |man |chmod |chown |ln |tar |zip |unzip |mount |umount |ps |kill |top |htop |df |du |free |uname |export |alias |source |exit |pseudo )|^(apt|git|npm|pip|sudo|systemctl|docker|cargo) " || \
+     echo "$text" | grep -qE " (sudo|apt|apt-get|git|npm|pip|systemctl|docker|podman|cargo|make) (install|update|upgrade|remove|purge|status|start|stop|restart|enable|disable|clone|pull|push|commit|add|log|diff|checkout|branch|merge|rebase|init)( |$)"; then
     echo "command"
   else
     echo "standard"
