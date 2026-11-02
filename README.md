@@ -37,7 +37,7 @@ Dictation at cursor for Linux. Now with **local transcription** (Parakeet/Whispe
 
 | Dependency | Needed for |
 |------------|-----------|
-| Ollama + `hf.co/spokenly/cleanup-1-gguf:Q8_0` (639 MB) | dictation cleanup of standard text — filler words, spoken corrections, numbers |
+| Ollama + `hf.co/spokenly/cleanup-1-gguf:Q8_0` (639 MB, ~1 GB RAM) | dictation cleanup of standard text — filler words, spoken corrections, numbers |
 | Ollama + an instruct model (e.g., `gemma3:4b`) | `command` / `email` formatting modes only |
 | `faster-whisper` (pip) | the `whisper` engine only |
 | NVIDIA CUDA toolkit | GPU acceleration for the whisper engine — Parakeet runs fast on CPU |
@@ -87,15 +87,15 @@ pip3 install --break-system-packages onnx-asr
 pip3 install --break-system-packages faster-whisper
 ```
 
-3. **Pull AI models** (optional):
+3. **Pull AI models** (both optional — xhisper works with no LLM at all):
 
-For fast cleanup of standard dictation (recommended — removes "um"/"uh", applies spoken corrections, formats numbers, email and web addresses, ~0.1-0.3s per dictation):
+Recommended: [Spokenly cleanup-1](https://huggingface.co/spokenly/cleanup-1), a 0.6B model built specifically for cleaning up dictated text — removes "um"/"uh", applies spoken corrections, formats numbers, email and web addresses, ~0.1-0.3s per dictation:
 ```sh
-ollama pull hf.co/spokenly/cleanup-1-gguf:Q8_0   # 639 MB
+ollama pull hf.co/spokenly/cleanup-1-gguf:Q8_0   # 639 MB, one time
 ```
-Then set `cleanup-model : xhisper-cleanup-1` in the config — the tuned alias (correct prompt format + greedy decoding) is created automatically on first use.
+Enable it in step 5 by setting `cleanup-model : xhisper-cleanup-1` (the tuned alias is created automatically on first use — see [AI Formatting Settings](#ai-formatting-settings) for why the names differ).
 
-For `command`/`email` formatting modes only (slower, multi-GB):
+For `command`/`email` formatting modes only (multi-GB instruct model):
 ```sh
 ollama pull gemma3:4b
 ```
@@ -113,6 +113,9 @@ mkdir -p ~/.config/xhisper
 cp default_xhisperrc ~/.config/xhisper/xhisperrc
 nano ~/.config/xhisper/xhisperrc
 ```
+Most defaults are fine. The two settings you may want to change:
+- Dictation cleanup (after the step-3 pull): `cleanup-model : xhisper-cleanup-1`
+- Command/email formatting: `post-process-model : gemma3:4b`
 
 6. Set up keyboard shortcut (e.g., in COSMIC Settings → Keyboard → Custom Shortcuts):
 ```sh
@@ -130,7 +133,7 @@ xhisper --mode=standard    # Plain text formatting
 
 Simply run `xhisper` twice (via your keybinding):
 - **First run**: Starts recording (shows `(recording...)`)
-- **Second run**: Stops and transcribes (shows `(transcribing...)`), then types the result at your cursor. A `(formatting...)` step appears only when an LLM pass actually applies (see the matrix below).
+- **Second run**: Stops and transcribes (shows `(transcribing...)`), then types the result at your cursor. A `(formatting...)` step appears only when an AI pass actually applies (see the matrix below).
 
 **Which pipeline runs?** Engine, mode, and configured models combine like this (`cleanup-model` = the fast 0.6B cleanup pass, `post-process-model` = an instruct LLM like Gemma):
 
@@ -204,7 +207,36 @@ Configuration is read from `~/.config/xhisper/xhisperrc`:
 - `command` - Linux command syntax correction (e.g., "pseudo" → "sudo")
 - `email` - Email body formatting with proper paragraph breaks
 
-**Dictation cleanup (`cleanup-model`):** [Spokenly cleanup-1](https://huggingface.co/spokenly/cleanup-1) is a 0.6B model fine-tuned specifically for cleaning up dictated text — it strips filler words ("um", "uh"), applies spoken corrections ("send it to Bob wait no to Alice" → "Send it to Alice"), formats numbers ("three thousand five hundred dollars" → "$3,500"), and speaks email/web addresses into their written forms ("john dot smith at gmail dot com" → `john.smith@gmail.com`). At ~0.1-0.3s per dictation it is cheap enough to run on every standard dictation, even on top of parakeet's built-in punctuation. Set it and forget it; `post-process-standard : off` disables it again. It is not an instruct model, so `command`/`email` modes still use `post-process-model`.
+**Dictation cleanup (`cleanup-model`):** [Spokenly cleanup-1](https://huggingface.co/spokenly/cleanup-1) is a 0.6B model fine-tuned specifically for cleaning up dictated text. It runs on every standard-mode dictation, even on top of parakeet's built-in punctuation, and turns:
+
+```
+"um can you send that to bob wait no to alice by three pm tomorrow"
+```
+into:
+```
+"Can you send that to Alice by 3 pm tomorrow?"
+```
+
+What it does: strips filler words ("um", "uh"), applies spoken corrections ("to Bob wait no to Alice" → "to Alice"), formats numbers and dates ("three thousand five hundred dollars" → "$3,500"), writes spoken email/web addresses in their real forms ("john dot smith at gmail dot com" → `john.smith@gmail.com`), and adds punctuation and capitalization.
+
+**Setup** — one download, one config line:
+```sh
+ollama pull hf.co/spokenly/cleanup-1-gguf:Q8_0    # 639 MB, one time
+```
+```sh
+cleanup-model : xhisper-cleanup-1                 # in ~/.config/xhisper/xhisperrc
+```
+That's it — from the next dictation on, standard text goes through it (`post-process-standard : off` disables it again).
+
+**Why two different model names?** You *pull* `hf.co/spokenly/cleanup-1-gguf:Q8_0` but *configure* `xhisper-cleanup-1`. The raw model's embedded prompt template ends in `"out: "` with a trailing space, which under greedy decoding makes it return empty output for many inputs — so on first use xhisper creates the `xhisper-cleanup-1` alias in Ollama with a fixed template, temperature 0, and a 4096-token context. Always configure the alias name; check `ollama list` after your first dictation to see it.
+
+**Requirements and limits:**
+- Ollama running locally; 639 MB disk, ~0.7-1.1 GB RAM while loaded
+- Runs on CPU (~0.3s per sentence, needs AVX2 — any x86-64 CPU from ~2014 on) or GPU (~0.1s)
+- Fully offline after the one-time download; Apache-2.0 licensed
+- English is best; German, Spanish, French, Chinese, Russian and Japanese work at lower quality — if you dictate mainly in another language (e.g. with the multilingual `nemo-parakeet-tdt-0.6b-v3`), test before relying on it
+- Not an instruct model — it cleans text but doesn't follow instructions, so `command`/`email` modes still use `post-process-model`
+- On failure or timeout the raw transcription is pasted unchanged (see `xhisper --log`)
 
 `post-process-standard` controls whether plain (non-command/email) text gets an AI pass: with `cleanup-model` set, `auto` runs the cheap cleanup pass (and `on` behaves the same); without it, `auto` skips the instruct LLM when the parakeet engine already punctuates (fastest) and `on` always formats (~1s+ extra per dictation). `off` never processes standard text. Command and email modes always use the instruct LLM.
 
@@ -242,7 +274,7 @@ This achieves ~1.5s end-to-end for standard dictation (transcription + the 0.6B 
 
 **GPU not detected**: Ensure NVIDIA drivers and CUDA toolkit are installed. Run `nvidia-smi` to verify.
 
-**Formatting not working**: Ensure Ollama is running and the models are pulled (`ollama pull hf.co/spokenly/cleanup-1-gguf:Q8_0`, `ollama pull gemma3:4b`). A failed or timed-out pass falls back to your raw transcription — check `xhisper --log` for the reason.
+**Formatting not working**: Ensure Ollama is running and the models are pulled (`ollama pull hf.co/spokenly/cleanup-1-gguf:Q8_0`, `ollama pull gemma3:4b`). For cleanup, `xhisper-cleanup-1` should appear in `ollama list` after your first dictation. A failed or timed-out pass falls back to your raw transcription — check `xhisper --log` for the reason.
 
 **Keyboard shortcut conflicts**: Avoid `Ctrl+Space` or `Alt+Space` as they conflict with browsers. Use `Alt+Shift+D` or `Ctrl+Alt+D` instead.
 
