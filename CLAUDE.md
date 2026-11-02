@@ -71,7 +71,7 @@ Key settings:
 - `transcription-engine`: parakeet (default) or whisper
 - `parakeet-model`: onnx-asr model (nemo-parakeet-tdt-0.6b-v2 = English, v3 = multilingual)
 - `model-name`: Whisper size (tiny, base, small, medium, large-v3) — whisper engine only
-- `model-device`: auto, cpu, or cuda — whisper engine only
+- `model-device`: auto, cpu, or cuda — whisper always; parakeet stays on CPU for auto/cpu and uses the GPU for cuda via onnxruntime-gpu (pin `==1.24.4`, the last CUDA 12 build; wheels ≥ 1.26 need CUDA 13), plus `nvidia-curand-cu12 nvidia-cufft-cu12`
 - `vad-min-silence-ms`: pause length before whisper VAD splits (default 5000)
 - `post-process-model`: Ollama instruct model (e.g., gemma3:4b); used for command/email modes, and for standard text per the next two keys
 - `cleanup-model`: Ollama model for fast dictation cleanup of standard text — Spokenly cleanup-1 (`xhisper-cleanup-1` alias, auto-created from the `hf.co/spokenly/cleanup-1-gguf:Q8_0` pull with the correct prompt format and greedy decoding). When set, standard text goes through it and `post-process-model` only serves command/email modes

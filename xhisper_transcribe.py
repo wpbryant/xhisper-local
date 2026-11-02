@@ -105,12 +105,17 @@ def _wav_duration_s(audio_path: str):
         return None
 
 
-def transcribe_parakeet(audio_path: str, model_name: str) -> str:
+def transcribe_parakeet(audio_path: str, model_name: str, device: str = "auto") -> str:
     """
     Transcribe an audio file using NVIDIA Parakeet via onnx-asr.
 
     Output is already punctuated and capitalized, which is most of what the
     standard LLM post-processing pass would do.
+
+    device: 'cuda' runs on the GPU via onnxruntime-gpu (which replaces the
+    plain onnxruntime package); 'auto'/'cpu' pin the CPU execution provider
+    explicitly, so the default stays on CPU even when the GPU wheel is
+    installed (ORT would otherwise pick CUDA on its own).
     """
     try:
         import onnx_asr
@@ -122,7 +127,44 @@ def transcribe_parakeet(audio_path: str, model_name: str) -> str:
         )
         sys.exit(1)
 
-    model = onnx_asr.load_model(model_name, _PARAKEET_MODEL_DIR)
+    providers = ["CPUExecutionProvider"]
+    if device == "cuda":
+        import onnxruntime
+
+        if "CUDAExecutionProvider" not in onnxruntime.get_available_providers():
+            print(
+                "Error: --device cuda for the parakeet engine requires the "
+                "onnxruntime-gpu package. Install it with: "
+                "pip3 install --break-system-packages onnxruntime-gpu "
+                "(it replaces onnxruntime)",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+
+    model = onnx_asr.load_model(model_name, _PARAKEET_MODEL_DIR, providers=providers)
+
+    if device == "cuda":
+        # ORT does NOT error when the CUDA provider fails to initialize (e.g.
+        # missing curand/cufft libs) — it silently runs on the CPU instead.
+        # Check the encoder session's actual providers and fail loudly.
+        try:
+            actual = model.asr._encoder._sess.get_providers()  # onnx-asr private
+        except AttributeError:
+            actual = None
+        if actual is not None and "CUDAExecutionProvider" not in actual:
+            print(
+                "Error: --device cuda requested but the model is running on "
+                "the CPU — the CUDA execution provider failed to load. Either "
+                "CUDA runtime libs are missing, or the onnxruntime-gpu wheel "
+                "targets a different CUDA major version (wheels >= 1.26 need "
+                "CUDA 13; the nvidia-*-cu12 packages provide CUDA 12). Known-"
+                "good combo with the cu12 stack: pip3 install "
+                "--break-system-packages 'onnxruntime-gpu==1.24.4' "
+                "nvidia-curand-cu12 nvidia-cufft-cu12",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     duration = _wav_duration_s(audio_path)
     if duration is not None and duration > _PARAKEET_VAD_THRESHOLD_S:
@@ -167,7 +209,8 @@ def main():
         "--device",
         default="auto",
         choices=["auto", "cpu", "cuda"],
-        help="Device to use (default: auto)",
+        help="Device to use (default: auto). Whisper: auto detects CUDA. "
+        "Parakeet: auto/cpu run on CPU; cuda needs onnxruntime-gpu",
     )
     parser.add_argument(
         "--language",
@@ -201,7 +244,7 @@ def main():
 
     try:
         if args.engine == "parakeet":
-            result = transcribe_parakeet(args.audio_file, args.parakeet_model)
+            result = transcribe_parakeet(args.audio_file, args.parakeet_model, args.device)
         else:
             result = transcribe_file(
                 args.audio_file,

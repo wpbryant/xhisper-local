@@ -18,7 +18,9 @@ export LD_LIBRARY_PATH="$NV_LIBS:$LD_LIBRARY_PATH"
 # - transcription-engine : parakeet or whisper (default parakeet)
 # - parakeet-model : onnx-asr model for the parakeet engine
 # - model-name : Whisper model size (tiny, base, small, medium, large-v3)
-# - model-device : Device to use (auto, cpu, cuda)
+# - model-device : Device to use (auto, cpu, cuda). whisper: auto detects
+#   CUDA. parakeet: auto/cpu run on CPU (default, fast); cuda runs on the
+#   GPU via onnxruntime-gpu (which replaces onnxruntime)
 # - model-language : Language code for faster/more accurate transcription (e.g., en)
 # - transcription-prompt : context words for better Whisper accuracy
 # - vad-min-silence-ms : silence before the whisper VAD splits segments (whisper only)
@@ -465,7 +467,9 @@ transcribe() {
   local -a cmd_args=(--engine "$transcription_engine")
 
   if [ "$transcription_engine" = "parakeet" ]; then
-    cmd_args+=(--parakeet-model "$parakeet_model")
+    # device: auto/cpu stay on CPU (pinned providers); cuda opts into the
+    # GPU via onnxruntime-gpu — see xhisper_transcribe.py
+    cmd_args+=(--parakeet-model "$parakeet_model" --device "$model_device")
   else
     cmd_args+=(--model "$model_name" --device "$model_device" --vad-min-silence-ms "$vad_min_silence_ms")
     [ -n "$model_language" ] && cmd_args+=(--language "$model_language")

@@ -40,7 +40,7 @@ Dictation at cursor for Linux. Now with **local transcription** (Parakeet/Whispe
 | Ollama + `hf.co/spokenly/cleanup-1-gguf:Q8_0` (639 MB, ~1 GB RAM) | dictation cleanup of standard text — filler words, spoken corrections, numbers |
 | Ollama + an instruct model (e.g., `gemma3:4b`) | `command` / `email` formatting modes only |
 | `faster-whisper` (pip) | the `whisper` engine only |
-| NVIDIA CUDA toolkit | GPU acceleration for the whisper engine — Parakeet runs fast on CPU |
+| NVIDIA CUDA toolkit | GPU acceleration for the whisper engine (and optionally parakeet via `onnxruntime-gpu`) — Parakeet runs fast on CPU |
 
 <details>
 <summary>Arch Linux / Manjaro</summary>
@@ -176,11 +176,17 @@ Configuration is read from `~/.config/xhisper/xhisperrc`:
 
 **Parakeet models:** `nemo-parakeet-tdt-0.6b-v2` (English, best accuracy), `nemo-parakeet-tdt-0.6b-v3` (25 languages, auto-detects)
 
+**Parakeet on GPU (optional):** Parakeet runs on CPU by default and is fast there. To run it on an NVIDIA GPU instead, set `model-device : cuda` and install the CUDA 12 build of onnxruntime plus the two libraries its CUDA provider needs:
+```sh
+pip3 install --break-system-packages 'onnxruntime-gpu==1.24.4' nvidia-curand-cu12 nvidia-cufft-cu12
+```
+`onnxruntime-gpu` **replaces** `onnxruntime`, and wheels ≥ 1.26 are built for CUDA 13, which won't load against the CUDA 12 libraries most stacks ship (the script fails loudly rather than silently falling back to CPU). Measured on an RTX 5070 Ti laptop: long VAD-segmented dictations get ~2.3× faster (80s clip: 6.7s → 2.9s), short dictations gain little (~2.1s → ~1.9s) because per-run model load dominates. The first GPU run takes ~40s one time (cuDNN kernel autotuning); later runs are fast. `auto` and `cpu` always stay on CPU.
+
 ### Whisper Settings (whisper engine only)
 | Setting | Description | Recommended |
 |---------|-------------|-------------|
 | `model-name` | Whisper model size | `base` (best balance) |
-| `model-device` | Device to use | `cuda` (GPU) or `cpu` |
+| `model-device` | Device to use (both engines — for parakeet GPU see above) | `cuda` (GPU) or `cpu` |
 | `model-language` | Language code | leave empty for auto |
 | `transcription-prompt` | Context for accuracy | optional |
 | `vad-min-silence-ms` | Pause length before VAD splits segments | `5000` |

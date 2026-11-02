@@ -25,10 +25,15 @@ parakeet-model : nemo-parakeet-tdt-0.6b-v2
 # - large-v3: slowest, best accuracy (~10GB RAM)
 model-name : base
 
-# Device: auto, cpu, or cuda
-# - auto: automatically detects and uses CUDA if available
-# - cpu: force CPU usage
-# - cuda: force GPU (CUDA) usage
+# Device (both engines): auto, cpu, or cuda
+# - whisper: auto detects and uses CUDA if available
+# - parakeet: auto and cpu run on CPU (default — already fast); cuda runs
+#   on the GPU via onnxruntime-gpu, worth it for long (VAD-segmented)
+#   dictations (~2.3x faster on an 80s clip; short ones gain little since
+#   per-run model load dominates):
+#     pip3 install --break-system-packages 'onnxruntime-gpu==1.24.4' nvidia-curand-cu12 nvidia-cufft-cu12
+#   (onnxruntime-gpu replaces onnxruntime; wheels >= 1.26 are built for
+#   CUDA 13 and do not load against the CUDA 12 libraries most stacks ship)
 model-device : auto
 
 # Language: leave empty for auto-detect, or specify code (e.g., en, es, fr)
