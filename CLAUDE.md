@@ -49,7 +49,10 @@ User presses hotkey → xhisper.sh toggles recording state
       ├─ Silent: type "(no sound detected)", exit
       └─ Not silent:
           ├─ transcribe via parakeet (default) or faster-whisper
-          ├─ if post-process-model set AND NOT skip_standard_formatting: format via Ollama
+          ├─ standard text: cleanup model if cleanup-model set (native
+          │  "text:..." prompt; the tuned alias appends the "\nout:" marker),
+          │  else instruct LLM per post-process-standard
+          ├─ command/email text: instruct LLM (post-process-model)
           └─ type result via daemon
 ```
 
@@ -70,8 +73,9 @@ Key settings:
 - `model-name`: Whisper size (tiny, base, small, medium, large-v3) — whisper engine only
 - `model-device`: auto, cpu, or cuda — whisper engine only
 - `vad-min-silence-ms`: pause length before whisper VAD splits (default 5000)
-- `post-process-model`: Ollama model (e.g., gemma3:4b); used for command/email modes, and for standard text per the next key
-- `post-process-standard`: LLM pass for standard text — auto (skip when parakeet punctuates, default), on (always), off (never; command/email unaffected)
+- `post-process-model`: Ollama instruct model (e.g., gemma3:4b); used for command/email modes, and for standard text per the next two keys
+- `cleanup-model`: Ollama model for fast dictation cleanup of standard text — Spokenly cleanup-1 (`xhisper-cleanup-1` alias, auto-created from the `hf.co/spokenly/cleanup-1-gguf:Q8_0` pull with the correct prompt format and greedy decoding). When set, standard text goes through it and `post-process-model` only serves command/email modes
+- `post-process-standard`: AI pass for standard text — auto (run cleanup model if set, else skip when parakeet punctuates; default), on (always), off (never; command/email unaffected)
 - `post-process-mode`: auto, standard, command, email
 - `post-process-timeout`: Max seconds for LLM formatting (on timeout the raw transcription is kept)
 

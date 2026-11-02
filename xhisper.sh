@@ -29,6 +29,10 @@ export LD_LIBRARY_PATH="$NV_LIBS:$LD_LIBRARY_PATH"
 # - post-process-standard : LLM pass for standard text - auto (skip when
 #   parakeet already punctuates), on (always), off (never; command/email
 #   modes are unaffected and always use the LLM)
+# - cleanup-model : Ollama model for fast dictation cleanup of standard text
+#   (filler words, spoken corrections, numbers), e.g. Spokenly cleanup-1.
+#   When set it replaces the LLM for standard text (see post-process-standard);
+#   post-process-model then only serves command/email modes.
 # Note: model-language, transcription-prompt, and vad-min-silence-ms apply to
 # the whisper engine only; parakeet v2 is English-only, v3 auto-detects.
 
@@ -38,7 +42,8 @@ export LD_LIBRARY_PATH="$NV_LIBS:$LD_LIBRARY_PATH"
 # - bc (timing in the log)
 # - Python 3 with onnx-asr (parakeet engine) and/or faster-whisper (whisper engine)
 # - make to build, sudo make install to install
-# Optional: ollama for command/email formatting; CUDA toolkit for whisper on GPU
+# Optional: ollama for command/email formatting and/or dictation cleanup
+#   (see cleanup-model below); CUDA toolkit for whisper on GPU
 
 # Parse command-line arguments
 LOCAL_MODE=0
@@ -102,6 +107,7 @@ silence_percentage=95
 non_ascii_initial_delay=0.1
 non_ascii_default_delay=0.025
 post_process_model=""
+cleanup_model=""
 post_process_timeout=10
 post_process_mode="auto"
 post_process_standard="auto"
@@ -131,6 +137,7 @@ if [ -f "$CONFIG_FILE" ]; then
       non-ascii-initial-delay) non_ascii_initial_delay="$value" ;;
       non-ascii-default-delay) non_ascii_default_delay="$value" ;;
       post-process-model) post_process_model="$value" ;;
+      cleanup-model) cleanup_model="$value" ;;
       post-process-timeout) post_process_timeout="$value" ;;
       post-process-mode) post_process_mode="$value" ;;
       post-process-standard) post_process_standard="$value" ;;
@@ -282,15 +289,75 @@ detect_mode() {
   fi
 }
 
-# Should the LLM pass be skipped for standard-mode text?
-#   auto (default): skip when the parakeet engine already punctuates
-#   on  : always run the LLM for standard text (even on parakeet)
-#   off : never run the LLM for standard text (command/email unaffected)
+# Should the AI pass be skipped for standard-mode text?
+#   auto (default): run the dedicated cleanup model when configured (it is
+#                   cheap, ~0.3s); otherwise skip when the parakeet engine
+#                   already punctuates
+#   on  : always run the AI pass for standard text (even on parakeet)
+#   off : never run any AI pass for standard text (command/email unaffected)
 skip_standard_formatting() {
   [ "$1" = "standard" ] || return 1
   [ "$post_process_standard" = "off" ] && return 0
   [ "$post_process_standard" = "on" ] && return 1
+  [ -n "$cleanup_model" ] && return 1
   [ "$transcription_engine" = "parakeet" ]
+}
+
+# Will any AI pass run for this resolved mode?
+#   command/email : only when the instruct model (post-process-model) is set
+#   standard      : when either the cleanup model or the instruct model is set
+formatting_applies() {
+  case "$1" in
+    command|email) [ -n "$post_process_model" ] ;;
+    *)             [ -n "$cleanup_model" ] || [ -n "$post_process_model" ] ;;
+  esac
+}
+
+# Spokenly cleanup-1 (https://huggingface.co/spokenly/cleanup-1): a 0.6B
+# dictation-cleanup model, ~639MB as Q8_0 GGUF. It is a fine-tune of a BASE
+# model (Qwen3): it understands only its native completion format
+# "text: ...\nout:" and expects greedy decoding. Two problems with running
+# the plain hf.co pull: ollama's default sampling is temperature 0.8, and the
+# chat template embedded in the GGUF renders "out: " WITH a trailing space —
+# at temperature 0 that trailing-space token makes the model emit EOS
+# immediately for many inputs (empty output). So on first use the script
+# creates a tuned alias from the pull — instant, no weight copy — that
+# overrides the template with the card-exact bare "out:" marker and pins
+# greedy decoding plus the card's 4096-token context.
+CLEANUP_MODEL_BASE="hf.co/spokenly/cleanup-1-gguf:Q8_0"
+
+ensure_cleanup_model() {
+  ollama show "$cleanup_model" &>/dev/null && return 0
+  ollama show "$CLEANUP_MODEL_BASE" &>/dev/null || return 1
+  local modelfile
+  modelfile=$(mktemp)
+  cat > "$modelfile" <<EOF
+FROM $CLEANUP_MODEL_BASE
+TEMPLATE """{{ if .Prompt }}{{ .Prompt }}
+out:{{ end }}{{ .Response }}<|endoftext|>"""
+PARAMETER temperature 0
+PARAMETER num_ctx 4096
+PARAMETER num_predict 1024
+PARAMETER stop "<|endoftext|>"
+EOF
+  ollama create "$cleanup_model" -f "$modelfile" >/dev/null 2>&1
+  local status=$?
+  rm -f "$modelfile"
+  return "$status"
+}
+
+# Run one prompt through ollama with a timeout: the cleaned result is written
+# to $3 and the timeout/ollama segment's exit status (0 = ok, 124/137 =
+# timeout) to $4. Both go through files rather than variables/command
+# substitution — pipelines inside $(...) run in a subshell and would leave
+# the parent's PIPESTATUS empty (and ollama's spinner escape codes are
+# stripped by the sed, which is why it is part of the pipeline).
+ollama_run() {
+  local model="$1" prompt="$2" result_file="$3" status_file="$4"
+  printf '%s' "$prompt" | timeout "$post_process_timeout" ollama run "$model" 2>/dev/null \
+    | tr -d '\n\r' \
+    | sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//' > "$result_file"
+  echo "${PIPESTATUS[1]}" > "$status_file"
 }
 
 post_process() {
@@ -300,7 +367,7 @@ post_process() {
 
   # Skip if empty or no model configured
   [ -z "$text" ] && echo "$text" && return
-  [ -z "$post_process_model" ] && echo "$text" && return
+  [ -z "$post_process_model" ] && [ -z "$cleanup_model" ] && echo "$text" && return
 
   # Check if ollama is available
   if ! command -v ollama &> /dev/null; then
@@ -312,7 +379,14 @@ post_process() {
   # Resolve auto-detection
   mode=$(detect_mode "$text" "$mode")
 
-  # Standard text may skip the LLM — see skip_standard_formatting().
+  # command/email modes need the instruct model (post-process-model);
+  # if only the cleanup model is configured there is nothing to do for them
+  if [ "$mode" != "standard" ] && [ -z "$post_process_model" ]; then
+    echo "$text"
+    return
+  fi
+
+  # Standard text may skip the AI pass — see skip_standard_formatting().
   # command/email always get LLM treatment on both engines.
   if skip_standard_formatting "$mode"; then
     logging_end_and_write_to_logfile "Post-Process [standard] (skipped: post-process-standard=$post_process_standard)" "$text" "$logging_start"
@@ -320,40 +394,54 @@ post_process() {
     return
   fi
 
-  local prompt
+  local prompt model
 
-  # Build prompt based on mode
-  case "$mode" in
-    command)
-      prompt="You are a Linux command expert. Fix this command transcription. Rules: 1) Correct command names (sudo, apt, git, npm, systemctl, docker, etc.) 2) Keep flags exactly as spoken 3) Keep file paths as spoken 4) Fix pipe syntax 5) Output ONLY the corrected command, no explanations. Input: $text"
-      ;;
-    email)
-      prompt="Fix the grammar, punctuation, and capitalization of this email body text. Rules: 1) Use proper paragraph breaks (double line breaks between paragraphs) 2) Keep the tone natural and conversational 3) Do NOT add subject, salutation, or sign-off - user is typing in the body field 4) Output ONLY the formatted body text. Input: $text"
-      ;;
-    standard|*)
-      prompt="Fix the grammar, punctuation, and capitalization of this text. Important: use apostrophes for contractions like don't, can't, I'm, you're, it's, etc. Keep text natural and conversational. Output ONLY the corrected text. Text: $text"
-      ;;
-  esac
+  if [ "$mode" = "standard" ] && [ -n "$cleanup_model" ]; then
+    # Dedicated dictation-cleanup model: the tuned alias (see
+    # ensure_cleanup_model) appends the native "\nout:" completion marker,
+    # so the prompt is just the text under the "text:" key
+    model="$cleanup_model"
+    prompt=$(printf 'text: %s' "$text")
+    mode="standard/cleanup"
+  else
+    # Build prompt based on mode
+    model="$post_process_model"
+    case "$mode" in
+      command)
+        prompt="You are a Linux command expert. Fix this command transcription. Rules: 1) Correct command names (sudo, apt, git, npm, systemctl, docker, etc.) 2) Keep flags exactly as spoken 3) Keep file paths as spoken 4) Fix pipe syntax 5) Output ONLY the corrected command, no explanations. Input: $text"
+        ;;
+      email)
+        prompt="Fix the grammar, punctuation, and capitalization of this email body text. Rules: 1) Use proper paragraph breaks (double line breaks between paragraphs) 2) Keep the tone natural and conversational 3) Do NOT add subject, salutation, or sign-off - user is typing in the body field 4) Output ONLY the formatted body text. Input: $text"
+        ;;
+      standard|*)
+        prompt="Fix the grammar, punctuation, and capitalization of this text. Important: use apostrophes for contractions like don't, can't, I'm, you're, it's, etc. Keep text natural and conversational. Output ONLY the corrected text. Text: $text"
+        ;;
+    esac
+  fi
 
-  # Run ollama with timeout. The pipeline writes to a temp file (not command
-  # substitution) so PIPESTATUS is visible here — pipelines inside $(...)
-  # run in a subshell and leave the parent's PIPESTATUS empty.
-  local result_file
+  local result_file status_file result
   result_file=$(mktemp)
-  echo "$prompt" | timeout "$post_process_timeout" ollama run "$post_process_model" 2>/dev/null \
-    | tr -d '\n\r' \
-    | sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//' > "$result_file"
-  local -a statuses=("${PIPESTATUS[@]}")   # [1] = the timeout/ollama segment
-  local result
+  status_file=$(mktemp)
+  ollama_run "$model" "$prompt" "$result_file" "$status_file"
+
+  # First use of the cleanup alias: a plain run fails with "model not found"
+  # — create the tuned alias from the base pull once and retry.
+  if [ "$(cat "$status_file")" -ne 0 ] && [ "$mode" = "standard/cleanup" ] && ensure_cleanup_model; then
+    ollama_run "$model" "$prompt" "$result_file" "$status_file"
+  fi
   result=$(<"$result_file")
-  rm -f "$result_file"
+  local status
+  status=$(<"$status_file")
+  rm -f "$result_file" "$status_file"
 
   # Timeout (124 = SIGTERM, 137 = SIGKILL) or ollama crash: never paste
   # partial output — a killed run leaves whatever it already flushed in the
   # pipe, which would truncate the middle of the text.
-  if [ "${statuses[1]}" -ne 0 ]; then
-    echo "Warning: post-process failed (exit ${statuses[1]} after ${post_process_timeout}s, mode=$mode); keeping original transcription" >> "$LOGFILE"
-    logging_end_and_write_to_logfile "Post-Process [$mode] FAILED (exit ${statuses[1]})" "$text" "$logging_start"
+  if [ "$status" -ne 0 ]; then
+    echo "Warning: post-process failed (exit $status after ${post_process_timeout}s, mode=$mode); keeping original transcription" >> "$LOGFILE"
+    [ "$mode" = "standard/cleanup" ] && \
+      echo "Hint: run 'ollama pull $CLEANUP_MODEL_BASE' to use the cleanup model" >> "$LOGFILE"
+    logging_end_and_write_to_logfile "Post-Process [$mode] FAILED (exit $status)" "$text" "$logging_start"
     echo "$text"
     return
   fi
@@ -423,10 +511,15 @@ if pgrep -f "$PROCESS_PATTERN" > /dev/null; then
     exit 1
   fi
 
-  # Post-process with LLM if configured. Skip the whole "(formatting...)"
-  # round trip when the standard-mode skip would no-op anyway.
-  if [ -n "$post_process_model" ] && [ -n "$TRANSCRIPTION" ] && \
-     ! skip_standard_formatting "$(detect_mode "$TRANSCRIPTION" "$post_process_mode")"; then
+  # Post-process with AI if configured. Skip the whole "(formatting...)"
+  # round trip when the pass would no-op anyway: standard text needs the
+  # cleanup or instruct model (and the standard skip to allow it), while
+  # command/email text needs the instruct model.
+  effective_mode=""
+  [ -n "$TRANSCRIPTION" ] && effective_mode=$(detect_mode "$TRANSCRIPTION" "$post_process_mode")
+
+  if [ -n "$effective_mode" ] && formatting_applies "$effective_mode" && \
+     ! skip_standard_formatting "$effective_mode"; then
     paste "(formatting...)"
     FORMATTED=$(post_process "$TRANSCRIPTION")
     delete_n_chars 15 # "(formatting...)"

@@ -11,7 +11,8 @@ Dictation at cursor for Linux. Now with **local transcription** (Parakeet/Whispe
 ## Features
 
 - 🎤 **Parakeet-first local transcription** — NVIDIA TDT 0.6B via onnx-asr: ~2x more accurate than whisper-base in English, punctuation & capitalization built in, fast on CPU (whisper remains a config-switch away)
-- ⚡ **No LLM latency for everyday dictation** — Parakeet output is pasted directly; Gemma only runs for command and email modes
+- 🧹 **Fast dictation cleanup** — optional [Spokenly cleanup-1](https://huggingface.co/spokenly/cleanup-1) pass (0.6B, ~0.1-0.3s) strips filler words, applies spoken corrections ("send it to Bob wait no Alice"), formats numbers, email and web addresses
+- ⚡ **No heavyweight LLM for everyday dictation** — the 0.6B cleanup model handles standard text; a bigger Ollama model is only used for command and email modes
 - 🧠 **AI-powered formatting** via local LLM (Ollama) for grammar, punctuation, and context-aware correction
 - 🔧 **Smart modes**: Auto-detects commands, or manual modes for email/standard text
 - 🕐 **Pause-safe long dictation** — thinking pauses never drop your words
@@ -36,7 +37,8 @@ Dictation at cursor for Linux. Now with **local transcription** (Parakeet/Whispe
 
 | Dependency | Needed for |
 |------------|-----------|
-| Ollama + a model (e.g., `gemma3:4b`) | `command` / `email` formatting modes only — standard dictation with Parakeet needs no LLM at all |
+| Ollama + `hf.co/spokenly/cleanup-1-gguf:Q8_0` (639 MB) | dictation cleanup of standard text — filler words, spoken corrections, numbers |
+| Ollama + an instruct model (e.g., `gemma3:4b`) | `command` / `email` formatting modes only |
 | `faster-whisper` (pip) | the `whisper` engine only |
 | NVIDIA CUDA toolkit | GPU acceleration for the whisper engine — Parakeet runs fast on CPU |
 
@@ -85,7 +87,15 @@ pip3 install --break-system-packages onnx-asr
 pip3 install --break-system-packages faster-whisper
 ```
 
-3. **Pull AI formatting model** (optional — only needed for `command`/`email` modes; standard Parakeet dictation skips the LLM entirely):
+3. **Pull AI models** (optional):
+
+For fast cleanup of standard dictation (recommended — removes "um"/"uh", applies spoken corrections, formats numbers, email and web addresses, ~0.1-0.3s per dictation):
+```sh
+ollama pull hf.co/spokenly/cleanup-1-gguf:Q8_0   # 639 MB
+```
+Then set `cleanup-model : xhisper-cleanup-1` in the config — the tuned alias (correct prompt format + greedy decoding) is created automatically on first use.
+
+For `command`/`email` formatting modes only (slower, multi-GB):
 ```sh
 ollama pull gemma3:4b
 ```
@@ -122,14 +132,14 @@ Simply run `xhisper` twice (via your keybinding):
 - **First run**: Starts recording (shows `(recording...)`)
 - **Second run**: Stops and transcribes (shows `(transcribing...)`), then types the result at your cursor. A `(formatting...)` step appears only when an LLM pass actually applies (see the matrix below).
 
-**Which pipeline runs?** Engine and mode combine like this:
+**Which pipeline runs?** Engine, mode, and configured models combine like this (`cleanup-model` = the fast 0.6B cleanup pass, `post-process-model` = an instruct LLM like Gemma):
 
 | Engine | Mode | Pipeline |
 |--------|------|----------|
-| `parakeet` | `auto` (prose) / `standard` | **Parakeet only** — punctuation & capitalization are built in, no LLM round trip (set `post-process-standard : on` to add the Gemma pass anyway) |
+| `parakeet` | `auto` (prose) / `standard` | Parakeet → **cleanup-1** when `cleanup-model` is set (filler words, spoken corrections, numbers); otherwise Parakeet only — punctuation is built in, no LLM round trip (set `post-process-standard : on` to add the instruct-LLM pass anyway) |
 | `parakeet` | `auto` (sounds like a command) | Parakeet → Gemma (command correction) |
 | `parakeet` | `command` / `email` | Parakeet → Gemma |
-| `whisper` | any | Whisper → Gemma (original behavior) |
+| `whisper` | any | Whisper → cleanup-1 (standard text) or Gemma |
 
 **View logs:**
 ```sh
@@ -182,9 +192,10 @@ Configuration is read from `~/.config/xhisper/xhisperrc`:
 ### AI Formatting Settings
 | Setting | Description | Recommended |
 |---------|-------------|-------------|
-| `post-process-model` | Ollama model for formatting | `gemma3:4b` |
+| `cleanup-model` | Ollama model for fast dictation cleanup of standard text | `xhisper-cleanup-1` (after pulling `hf.co/spokenly/cleanup-1-gguf:Q8_0`) |
+| `post-process-model` | Ollama instruct model for command/email formatting | `gemma3:4b` |
 | `post-process-mode` | Detection mode | `auto` |
-| `post-process-standard` | LLM pass for standard text (`auto`/`on`/`off`) | `auto` |
+| `post-process-standard` | AI pass for standard text (`auto`/`on`/`off`) | `auto` |
 | `post-process-timeout` | Max seconds for formatting | `10` |
 
 **Available modes:**
@@ -193,7 +204,9 @@ Configuration is read from `~/.config/xhisper/xhisperrc`:
 - `command` - Linux command syntax correction (e.g., "pseudo" → "sudo")
 - `email` - Email body formatting with proper paragraph breaks
 
-`post-process-standard` controls whether plain (non-command/email) text gets the LLM pass: `auto` skips it when the parakeet engine already punctuates (fastest), `on` always formats — use this if you want fuller Gemma cleanup on top of parakeet (~1s extra per dictation), `off` never formats standard text. Command and email modes always use the LLM.
+**Dictation cleanup (`cleanup-model`):** [Spokenly cleanup-1](https://huggingface.co/spokenly/cleanup-1) is a 0.6B model fine-tuned specifically for cleaning up dictated text — it strips filler words ("um", "uh"), applies spoken corrections ("send it to Bob wait no to Alice" → "Send it to Alice"), formats numbers ("three thousand five hundred dollars" → "$3,500"), and speaks email/web addresses into their written forms ("john dot smith at gmail dot com" → `john.smith@gmail.com`). At ~0.1-0.3s per dictation it is cheap enough to run on every standard dictation, even on top of parakeet's built-in punctuation. Set it and forget it; `post-process-standard : off` disables it again. It is not an instruct model, so `command`/`email` modes still use `post-process-model`.
+
+`post-process-standard` controls whether plain (non-command/email) text gets an AI pass: with `cleanup-model` set, `auto` runs the cheap cleanup pass (and `on` behaves the same); without it, `auto` skips the instruct LLM when the parakeet engine already punctuates (fastest) and `on` always formats (~1s+ extra per dictation). `off` never processes standard text. Command and email modes always use the instruct LLM.
 
 ### Other Settings
 - `silence-threshold`: Volume threshold for silence detection (dB, default -50)
@@ -215,10 +228,11 @@ All NVIDIA GPUs; CPU brand matters little — the default Parakeet engine runs f
 |-----------|---------------|-------|
 | Engine | `parakeet` | More accurate than whisper-base, punctuates natively |
 | Parakeet model | `nemo-parakeet-tdt-0.6b-v2` | English, runs fast on CPU |
+| Cleanup | `xhisper-cleanup-1` | 0.6B dictation cleanup for standard text, ~0.1-0.3s |
 | Formatter | `gemma3:4b` | Used for command/email modes only |
 | Mode | `auto` | Detects commands automatically |
 
-This achieves ~1.5s end-to-end for standard dictation (transcription only — no LLM pass), or ~1s transcription + ~1s Gemma formatting for command/email modes. Long dictation sessions with thinking pauses are safe: recordings over 25s are VAD-segmented so nothing said after a pause is dropped, and a timed-out formatting pass falls back to your raw transcription instead of pasting truncated text.
+This achieves ~1.5s end-to-end for standard dictation (transcription + the 0.6B cleanup pass), or ~1s transcription + Gemma formatting for command/email modes (beware cold Gemma loads: raise `post-process-timeout` if the first command-mode dictation falls back to raw text). Long dictation sessions with thinking pauses are safe: recordings over 25s are VAD-segmented so nothing said after a pause is dropped, and a timed-out formatting pass falls back to your raw transcription instead of pasting truncated text.
 
 ---
 
@@ -228,7 +242,7 @@ This achieves ~1.5s end-to-end for standard dictation (transcription only — no
 
 **GPU not detected**: Ensure NVIDIA drivers and CUDA toolkit are installed. Run `nvidia-smi` to verify.
 
-**Formatting not working**: Ensure Ollama is running and the model is pulled (`ollama pull gemma3:4b`).
+**Formatting not working**: Ensure Ollama is running and the models are pulled (`ollama pull hf.co/spokenly/cleanup-1-gguf:Q8_0`, `ollama pull gemma3:4b`). A failed or timed-out pass falls back to your raw transcription — check `xhisper --log` for the reason.
 
 **Keyboard shortcut conflicts**: Avoid `Ctrl+Space` or `Alt+Space` as they conflict with browsers. Use `Alt+Shift+D` or `Ctrl+Alt+D` instead.
 
@@ -244,7 +258,8 @@ python3 -c "import onnx_asr, pathlib; onnx_asr.load_model('nemo-parakeet-tdt-0.6
 This is a fork of [xhisper](https://github.com/imaginalnika/xhisper) by [imaginalnika](https://github.com/imaginalnika). The original project used the Groq API for transcription. This fork adds:
 
 - **Parakeet as the default transcription engine** (NVIDIA TDT 0.6B via onnx-asr) — ~2x more accurate than whisper-base in English, punctuates natively, runs fast on CPU; whisper remains available via `transcription-engine`
-- **LLM formatting only where it earns its latency** — standard dictation skips the Ollama pass entirely; Gemma handles command/email modes
+- **Fast dictation cleanup via [Spokenly cleanup-1](https://huggingface.co/spokenly/cleanup-1)** — a 0.6B model purpose-built for cleaning dictated text (filler words, spoken corrections, numbers, email/web addresses), ~0.1-0.3s per dictation; the script auto-creates a tuned Ollama alias with the correct prompt format and greedy decoding
+- **LLM formatting only where it earns its latency** — an instruct LLM (e.g., Gemma) is reserved for command/email modes
 - **Long-dictation safety** — VAD segmentation for long clips, tunable pause threshold (`vad-min-silence-ms`), and timeout-killed formatting falls back to raw text instead of truncating
 - **Local Whisper transcription** via `faster-whisper` (no Groq API)
 - **AI formatting** with local LLM support via Ollama
