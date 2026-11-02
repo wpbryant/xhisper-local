@@ -28,6 +28,11 @@ export LD_LIBRARY_PATH="$NV_LIBS:$LD_LIBRARY_PATH"
 # - silence-percentage : percentage of recording that must be silent (e.g., 95)
 # - non-ascii-initial-delay : sleep after first non-ASCII paste (seconds)
 # - non-ascii-default-delay : sleep after subsequent non-ASCII pastes (seconds)
+# - transcription-corrections : comma-separated from=to phrase corrections
+#   applied to the raw transcription (the ASR cannot be vocabulary-biased, so
+#   words it mishears — e.g. "Claude" heard as "clawed" — are fixed here).
+#   Case-insensitive whole-phrase matches, longest source first:
+#     transcription-corrections : clawed code=Claude Code,clawed=Claude
 # - post-process-standard : LLM pass for standard text - auto (skip when
 #   parakeet already punctuates), on (always), off (never; command/email
 #   modes are unaffected and always use the LLM)
@@ -109,6 +114,7 @@ silence_percentage=95
 non_ascii_initial_delay=0.1
 non_ascii_default_delay=0.025
 post_process_model=""
+transcription_corrections=""
 cleanup_model=""
 post_process_timeout=10
 post_process_mode="auto"
@@ -133,6 +139,7 @@ if [ -f "$CONFIG_FILE" ]; then
       model-device) model_device="$value" ;;
       model-language) model_language="$value" ;;
       transcription-prompt) transcription_prompt="$value" ;;
+      transcription-corrections) transcription_corrections="$value" ;;
       vad-min-silence-ms) vad_min_silence_ms="$value" ;;
       silence-threshold) silence_threshold="$value" ;;
       silence-percentage) silence_percentage="$value" ;;
@@ -235,6 +242,34 @@ delete_n_chars() {
   for ((i=0; i<n; i++)); do
     "$XHISPERTOOL" backspace
   done
+}
+
+# Apply the transcription-corrections word map to a transcription: the ASR
+# engines are pure speech-to-text with no vocabulary biasing, so words they
+# mishear (homophones like "Claude"/"clawed") are corrected here, before mode
+# detection and cleanup see the text. Matches are case-insensitive whole
+# phrases (GNU sed \b + I flag); longest sources are applied first so
+# "clawed code=Claude Code" wins over a standalone "clawed" rule.
+apply_corrections() {
+  local text="$1"
+  [ -z "$transcription_corrections" ] && { echo "$text"; return; }
+
+  # Split the comma list into sed rules, sorted by source length descending
+  local -a rules=()
+  local pair from to
+  while IFS= read -r pair; do
+    [ -z "$pair" ] && continue
+    from="${pair%%=*}"
+    to="${pair#*=}"
+    # pairs without '=' (or with an empty source) are malformed — skip
+    [ "$from" = "$pair" ] || [ -z "$from" ] && continue
+    rules+=("s|\b${from}\b|${to}|gI")
+  done < <(tr ',' '\n' <<<"$transcription_corrections" | awk -F= '{print length($1)"\t"$0}' | sort -rn | cut -f2-)
+
+  # guard for a corrections list with no valid pairs
+  [ "${#rules[@]}" -eq 0 ] && { echo "$text"; return; }
+
+  echo "$text" | sed -e "$(printf '%s\n' "${rules[@]}" | paste -sd';' -)"
 }
 
 is_silent() {
@@ -505,6 +540,14 @@ if pgrep -f "$PROCESS_PATTERN" > /dev/null; then
   paste "(transcribing...)"
   TRANSCRIPTION=$(transcribe "$RECORDING")
   delete_n_chars 17 # "(transcribing...)"
+
+  # ASR mishear fixups (see apply_corrections) — applied before mode
+  # detection and cleanup, so everything downstream sees corrected text
+  CORRECTED=$(apply_corrections "$TRANSCRIPTION")
+  if [ -n "$TRANSCRIPTION" ] && [ "$CORRECTED" != "$TRANSCRIPTION" ]; then
+    echo "Corrections applied: [$TRANSCRIPTION] -> [$CORRECTED]" >> "$LOGFILE"
+    TRANSCRIPTION="$CORRECTED"
+  fi
 
   # Engine failed (e.g. onnx-asr missing, model error) — errors are in the log
   if [ -z "$TRANSCRIPTION" ]; then

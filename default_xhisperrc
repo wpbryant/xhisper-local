@@ -43,6 +43,15 @@ model-language : ""
 # Transcription Settings:
 transcription-prompt     : ""
 
+# ASR mishear corrections (both engines): comma-separated from=to phrases,
+# case-insensitive whole-phrase matches, longest source first. The ASR
+# cannot be vocabulary-biased, so homophones it mishears get fixed here —
+# e.g. parakeet hears "Claude" as "clawed":
+#   transcription-corrections : clawed code=Claude Code,clawed=Claude
+# NB: matches replace literal uses too ("the cat clawed" -> "the cat Claude"),
+# so only map words you never dictate with their literal meaning.
+transcription-corrections : ""
+
 # VAD: silence (ms) before the whisper VAD splits segments. Raise this if
 # speech after a thinking pause still gets dropped (whisper engine only).
 vad-min-silence-ms : 5000

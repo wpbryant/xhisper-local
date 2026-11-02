@@ -176,6 +176,12 @@ Configuration is read from `~/.config/xhisper/xhisperrc`:
 
 **Parakeet models:** `nemo-parakeet-tdt-0.6b-v2` (English, best accuracy), `nemo-parakeet-tdt-0.6b-v3` (25 languages, auto-detects)
 
+**Fixing misheard words (`transcription-corrections`):** the ASR engines have no vocabulary biasing, so homophones get transcribed literally — e.g. "Claude" comes out as "clawed". A comma-separated `from=to` map fixes known mishears right after transcription, before cleanup runs:
+```sh
+transcription-corrections : clawed code=Claude Code,clawed=Claude
+```
+Matches are case-insensitive whole phrases, longest source first. Note the trade-off: literal uses of a mapped word are replaced too, so only map words you never dictate with their literal meaning.
+
 **Parakeet on GPU (optional):** Parakeet runs on CPU by default and is fast there. To run it on an NVIDIA GPU instead, set `model-device : cuda` and install the CUDA 12 build of onnxruntime plus the two libraries its CUDA provider needs:
 ```sh
 pip3 install --break-system-packages 'onnxruntime-gpu==1.24.4' nvidia-curand-cu12 nvidia-cufft-cu12
