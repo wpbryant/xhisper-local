@@ -119,10 +119,15 @@ def transcribe_parakeet(audio_path: str, model_name: str, device: str = "auto") 
     """
     try:
         import onnx_asr
-    except ImportError:
+    except ImportError as exc:
+        # onnx_asr imports onnxruntime at module load, so a missing
+        # onnxruntime (a separate package / an extra since onnx-asr 0.12)
+        # lands here too. Report the real cause, not just "install onnx-asr".
         print(
-            "Error: engine 'parakeet' requires the onnx-asr package. "
-            "Install it with: pip3 install --break-system-packages onnx-asr",
+            f"Error: engine 'parakeet' requires onnx-asr with onnxruntime "
+            f"({exc}). Install it with: "
+            "pip3 install --break-system-packages 'onnx-asr[cpu]' "
+            "(or your distro's onnxruntime package)",
             file=sys.stderr,
         )
         sys.exit(1)

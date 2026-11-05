@@ -80,12 +80,22 @@ You should see `input` in the output.
 
 2. **Install Python dependencies**:
 ```sh
-# Parakeet engine (default) — deps (onnxruntime, huggingface-hub, numpy) usually already present
-pip3 install --break-system-packages onnx-asr
+# Parakeet engine (default) — onnxruntime is an extra since onnx-asr 0.12
+pip3 install --break-system-packages 'onnx-asr[cpu]'
+
+# If pip has no onnxruntime wheel for your Python yet (e.g. a just-released
+# 3.15), install your distro's onnxruntime package instead, e.g. on Fedora:
+#   sudo dnf install python3-onnxruntime
 
 # Whisper engine (optional fallback)
 pip3 install --break-system-packages faster-whisper
 ```
+
+> **⚠️ Package break in onnx-asr ≥ 0.12 (affects reinstallers and fresh installs on any distro):** onnxruntime moved from a hard dependency to an optional *extra*. The old instruction — a bare `pip3 install onnx-asr` — now installs **no** onnxruntime, and dictation fails with `No module named 'onnxruntime'` even though onnx-asr looks installed.
+>
+> - **CPU setup:** use `'onnx-asr[cpu]'` as shown above (or your distro's onnxruntime package).
+> - **GPU setup:** use the pinned `onnxruntime-gpu` command from the *Parakeet on GPU* section under Transcription Engine Settings — it satisfies onnx-asr and replaces the CPU onnxruntime package.
+> - onnxruntime wheels also lag brand-new Python releases (there were none for 3.15 at its launch). If pip finds no wheel for your Python, CPU setups can fall back to a distro package; the GPU stack has no fallback and must wait for wheels — Parakeet stays fast on CPU meanwhile.
 
 3. **Pull AI models** (both optional — xhisper works with no LLM at all):
 
@@ -186,7 +196,7 @@ Matches are case-insensitive whole phrases, longest source first. Note the trade
 ```sh
 pip3 install --break-system-packages 'onnxruntime-gpu==1.24.4' nvidia-curand-cu12 nvidia-cufft-cu12
 ```
-`onnxruntime-gpu` **replaces** `onnxruntime`, and wheels ≥ 1.26 are built for CUDA 13, which won't load against the CUDA 12 libraries most stacks ship (the script fails loudly rather than silently falling back to CPU). Measured on an RTX 5070 Ti laptop: long VAD-segmented dictations get ~2.3× faster (80s clip: 6.7s → 2.9s), short dictations gain little (~2.1s → ~1.9s) because per-run model load dominates. The first GPU run takes ~40s one time (cuDNN kernel autotuning); later runs are fast. `auto` and `cpu` always stay on CPU.
+`onnxruntime-gpu` **replaces** `onnxruntime`, and wheels ≥ 1.26 are built for CUDA 13, which won't load against the CUDA 12 libraries most stacks ship (the script fails loudly rather than silently falling back to CPU). There is also an `onnx-asr[gpu]` extra, but it pulls the newest onnxruntime-gpu — CUDA 13-built since 1.26 — so on a CUDA 12 stack use the pinned command above. GPU wheels lag new Python releases too: on a Python without a published wheel the GPU stack can't be pip-installed until one appears. Measured on an RTX 5070 Ti laptop: long VAD-segmented dictations get ~2.3× faster (80s clip: 6.7s → 2.9s), short dictations gain little (~2.1s → ~1.9s) because per-run model load dominates. The first GPU run takes ~40s one time (cuDNN kernel autotuning); later runs are fast. `auto` and `cpu` always stay on CPU.
 
 ### Whisper Settings (whisper engine only)
 | Setting | Description | Recommended |

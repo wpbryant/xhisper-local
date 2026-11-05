@@ -12,7 +12,7 @@ xhisper-local is a fork of [xhisper](https://github.com/imaginalnika/xhisper) by
 
 ```bash
 # Install Python dependencies
-pip3 install --break-system-packages onnx-asr       # parakeet engine (default)
+pip3 install --break-system-packages 'onnx-asr[cpu]'  # parakeet engine (default); onnxruntime is an extra since onnx-asr 0.12 — a distro onnxruntime package satisfies it too
 pip3 install --break-system-packages faster-whisper # whisper engine (optional)
 
 # Build C binary
