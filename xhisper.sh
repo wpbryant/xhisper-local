@@ -214,8 +214,13 @@ press_wrap_key() {
   fi
 }
 
-paste() {
+# Type text at the cursor. Named type_text (not paste): a function named
+# paste silently shadows the paste(1) binary, which bit this script once —
+# apply_corrections' "paste -sd';' -" rule-join typed "-sd;" at the cursor
+# on every corrected dictation.
+type_text() {
   local text="$1"
+  audit "TYPE [${text:0:70}]"
   press_wrap_key
   # Type character by character
   # Use xhispertool type for ASCII (32-126), clipboard+paste for Unicode
@@ -237,8 +242,17 @@ paste() {
   press_wrap_key
 }
 
+# Audit trail for the typing layer: timestamps every keystroke command the
+# script issues so injected-text bugs can be localized (if characters appear
+# at the cursor while no audit line covers them, they come from outside
+# xhisper — hotkey leakage, compositor, other software).
+audit() {
+  echo "[$(date +%H:%M:%S.%3N)] $1" >> "$LOGFILE"
+}
+
 delete_n_chars() {
   local n="$1"
+  audit "BKSP x$n"
   for ((i=0; i<n; i++)); do
     "$XHISPERTOOL" backspace
   done
@@ -269,7 +283,14 @@ apply_corrections() {
   # guard for a corrections list with no valid pairs
   [ "${#rules[@]}" -eq 0 ] && { echo "$text"; return; }
 
-  echo "$text" | sed -e "$(printf '%s\n' "${rules[@]}" | paste -sd';' -)"
+  # Join rules with ';' via IFS — pure bash. Do not use paste(1) here (see
+  # the type_text comment: a same-named typing function once shadowed it and
+  # typed "-sd;" at the cursor instead of joining the rules).
+  local joined
+  local IFS=';'
+  joined="${rules[*]}"
+
+  echo "$text" | sed -e "$joined"
 }
 
 is_silent() {
@@ -530,14 +551,14 @@ if pgrep -f "$PROCESS_PATTERN" > /dev/null; then
 
   # Check if recording is silent
   if is_silent "$RECORDING"; then
-    paste "(no sound detected)"
+    type_text "(no sound detected)"
     sleep 0.6
     delete_n_chars 19 # "(no sound detected)"
     rm -f "$RECORDING"
     exit 0
   fi
 
-  paste "(transcribing...)"
+  type_text "(transcribing...)"
   TRANSCRIPTION=$(transcribe "$RECORDING")
   delete_n_chars 17 # "(transcribing...)"
 
@@ -551,7 +572,7 @@ if pgrep -f "$PROCESS_PATTERN" > /dev/null; then
 
   # Engine failed (e.g. onnx-asr missing, model error) — errors are in the log
   if [ -z "$TRANSCRIPTION" ]; then
-    paste "(transcription failed - see xhisper --log)"
+    type_text "(transcription failed - see xhisper --log)"
     sleep 1.5
     delete_n_chars 42 # "(transcription failed - see xhisper --log)"
     rm -f "$RECORDING"
@@ -567,23 +588,23 @@ if pgrep -f "$PROCESS_PATTERN" > /dev/null; then
 
   if [ -n "$effective_mode" ] && formatting_applies "$effective_mode" && \
      ! skip_standard_formatting "$effective_mode"; then
-    paste "(formatting...)"
+    type_text "(formatting...)"
     FORMATTED=$(post_process "$TRANSCRIPTION")
     delete_n_chars 15 # "(formatting...)"
     # Only paste if we got a result
     if [ -n "$FORMATTED" ]; then
-      paste "$FORMATTED"
+      type_text "$FORMATTED"
     else
-      paste "$TRANSCRIPTION"
+      type_text "$TRANSCRIPTION"
     fi
   else
-    paste "$TRANSCRIPTION"
+    type_text "$TRANSCRIPTION"
   fi
 
   rm -f "$RECORDING"
 else
   # No recording running, so start
   sleep 0.2
-  paste "(recording...)"
+  type_text "(recording...)"
   pw-record --channels=1 --rate=16000 "$RECORDING"
 fi
